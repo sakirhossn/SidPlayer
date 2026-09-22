@@ -1,0 +1,60 @@
+{
+  "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
+  "appId": "com.sidplayer.desktop",
+  "productName": "SidPlayer",
+  "directories": {
+    "output": "release"
+  },
+  "files": [
+    "dist",
+    "dist-electron"
+  ],
+  "win": {
+    "target": [
+      {
+        "target": "dir",
+        "arch": ["x64"]
+      }
+    ],
+    "forceCodeSigning": false,
+    "sign": null,
+    "fileAssociations": [
+      {
+        "ext": "mp4",
+        "name": "MPEG-4 Video",
+        "description": "Video File",
+        "role": "Viewer"
+      },
+      {
+        "ext": "mkv",
+        "name": "Matroska Video",
+        "description": "Video File",
+        "role": "Viewer"
+      },
+      {
+        "ext": "webm",
+        "name": "WebM Video",
+        "description": "Video File",
+        "role": "Viewer"
+      },
+      {
+        "ext": "avi",
+        "name": "AVI Video",
+        "description": "Video File",
+        "role": "Viewer"
+      },
+      {
+        "ext": "mov",
+        "name": "QuickTime Video",
+        "description": "Video File",
+        "role": "Viewer"
+      },
+      {
+        "ext": "m4v",
+        "name": "Apple Video",
+        "description": "Video File",
+        "role": "Viewer"
+      }
+    ]
+  }
+}
