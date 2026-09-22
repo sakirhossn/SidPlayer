@@ -2,6 +2,10 @@ import { app, BrowserWindow, ipcMain, dialog, shell, protocol, clipboard, native
 import path from 'path'
 import fs from 'fs'
 import crypto from 'crypto'
+import { fileURLToPath } from 'node:url'
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
 import { registerMediaProtocol } from './protocol'
 import { store } from './store'
 import { scanFolder, cancelScan } from './scanner'
