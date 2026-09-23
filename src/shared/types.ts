@@ -139,3 +139,17 @@ export interface ScreenshotResult {
   dataUrl?: string
   error?: string
 }
+
+export interface PrepareMediaProgress {
+  videoId: string
+  percent: number // 0 - 100
+  status: string
+}
+
+export interface PrepareMediaResult {
+  ready: boolean
+  playablePath: string
+  isOptimized: boolean
+  error?: string
+}
+

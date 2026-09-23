@@ -18,6 +18,7 @@
     ],
     "forceCodeSigning": false,
     "sign": null,
+    "signAndEditExecutable": false,
     "fileAssociations": [
       {
         "ext": "mp4",

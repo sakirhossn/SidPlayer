@@ -20,6 +20,11 @@
   ],
   "author": "SidPlayer Team",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sakirhossn/SidPlayer.git"
+  },
+  "homepage": "https://github.com/sakirhossn/SidPlayer",
   "dependencies": {
     "clsx": "^2.1.1",
     "lucide-react": "^1.16.0",

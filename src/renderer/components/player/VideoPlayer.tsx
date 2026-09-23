@@ -9,7 +9,9 @@ import {
   Camera,
   Info,
   Layers,
-  AlertTriangle
+  AlertTriangle,
+  Sparkles,
+  RefreshCw
 } from 'lucide-react'
 import {
   usePlayerStore,
@@ -77,6 +79,9 @@ export const VideoPlayer: React.FC = () => {
   const [isPanning, setIsPanning] = useState(false)
   const [panStart, setPanStart] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
   const [playError, setPlayError] = useState<string | null>(null)
+  const [activePlayPath, setActivePlayPath] = useState<string | null>(null)
+  const [isPreparing, setIsPreparing] = useState(false)
+  const [prepProgress, setPrepProgress] = useState<{ percent: number; status: string } | null>(null)
 
   const hideControlsTimeout = useRef<NodeJS.Timeout | null>(null)
   const upNextInterval = useRef<NodeJS.Timeout | null>(null)
@@ -109,10 +114,63 @@ export const VideoPlayer: React.FC = () => {
     }
   }, [])
 
-  // Clear error on video change
+  // Check and prepare playable stream (auto-remuxing MPEG-TS, unsupported containers/audio)
   useEffect(() => {
+    if (!currentVideo) {
+      setActivePlayPath(null)
+      setIsPreparing(false)
+      setPrepProgress(null)
+      return
+    }
+
     setPlayError(null)
     setUpNextCountdown(null)
+    setIsPreparing(false)
+    setPrepProgress(null)
+
+    let isMounted = true
+
+    const unbind = window.electronAPI?.media.onPrepareProgress((prog) => {
+      if (isMounted && prog.videoId === currentVideo.id) {
+        setPrepProgress({ percent: prog.percent, status: prog.status })
+      }
+    })
+
+    const prepare = async (force = false) => {
+      if (!window.electronAPI) {
+        setActivePlayPath(currentVideo.path)
+        return
+      }
+
+      setIsPreparing(true)
+      try {
+        const res = await window.electronAPI.media.preparePlayableMedia(currentVideo, force)
+        if (!isMounted) return
+
+        if (res.ready) {
+          setActivePlayPath(res.playablePath)
+          setIsPreparing(false)
+          setPrepProgress(null)
+        } else {
+          setIsPreparing(false)
+          setPlayError(res.error || 'Failed to prepare video for playback.')
+        }
+      } catch (err: any) {
+        if (!isMounted) return
+        setIsPreparing(false)
+        setPlayError(err.message || 'Error initializing media stream.')
+      }
+    }
+
+    prepare(false)
+
+    return () => {
+      isMounted = false
+      unbind?.()
+      if (currentVideo && window.electronAPI) {
+        window.electronAPI.media.cancelTransmux(currentVideo.id)
+      }
+    }
   }, [currentVideo?.id])
 
   // Handle Video Time Updates
@@ -406,8 +464,45 @@ export const VideoPlayer: React.FC = () => {
     }
   }
 
+  const handleForceRemux = async () => {
+    if (!currentVideo) return
+    setIsPreparing(true)
+    setPlayError(null)
+    try {
+      const res = await window.electronAPI?.media.preparePlayableMedia(currentVideo, true)
+      if (res && res.ready) {
+        setActivePlayPath(res.playablePath)
+        setIsPreparing(false)
+        setPrepProgress(null)
+        return
+      }
+    } catch (e: any) {
+      console.error('Force remux error:', e)
+      setPlayError(e.message || 'Failed to remux media.')
+      setIsPreparing(false)
+    }
+  }
+
+  const handleVideoError = async () => {
+    if (!currentVideo) return
+
+    // If direct HTML5 playback failed, try automatic remux fallback
+    if (activePlayPath === currentVideo.path) {
+      console.log('Direct HTML5 playback failed. Attempting hardware-accelerated remux fallback...')
+      await handleForceRemux()
+      return
+    }
+
+    setPlayError(
+      `Unable to play this media file directly (${currentVideo.format.toUpperCase()} / ${currentVideo.videoCodec}). The video codec might not be supported natively by the browser engine.`
+    )
+    setIsPreparing(false)
+  }
+
   // Stream URL using custom Range-supported media protocol
-  const streamUrl = `media://stream?path=${encodeURIComponent(currentVideo.path)}`
+  const streamUrl = activePlayPath
+    ? `media://stream?path=${encodeURIComponent(activePlayPath)}`
+    : ''
 
   return (
     <div
@@ -424,16 +519,19 @@ export const VideoPlayer: React.FC = () => {
       {/* Video Element */}
       <video
         ref={videoRef}
-        src={streamUrl}
+        key={streamUrl}
+        src={streamUrl || undefined}
         onClick={handleClick}
         onDoubleClick={handleDoubleClick}
         onTimeUpdate={handleTimeUpdate}
         onEnded={handleVideoEnded}
-        onError={() => {
-          setPlayError(
-            `Unable to play this media file directly (${currentVideo.format.toUpperCase()} / ${currentVideo.videoCodec}). The video codec might not be supported natively by the browser engine.`
-          )
+        onLoadedMetadata={() => {
+          if (videoRef.current) {
+            registerVideoElement(videoRef.current)
+            videoRef.current.play().catch(() => {})
+          }
         }}
+        onError={handleVideoError}
         style={{
           ...getAspectRatioStyle(),
           transform: `scale(${zoom}) translate(${panX / zoom}px, ${panY / zoom}px)`,
@@ -568,13 +666,47 @@ export const VideoPlayer: React.FC = () => {
         />
       )}
 
+      {/* Optimizing & Remuxing Progress Overlay */}
+      {isPreparing && (
+        <div className="absolute inset-0 bg-sid-950/95 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center z-40 select-none">
+          <div className="relative mb-5 flex items-center justify-center">
+            <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-blue-600/30 to-indigo-600/30 border border-blue-500/30 flex items-center justify-center shadow-lg shadow-blue-500/10 animate-pulse">
+              <Sparkles className="w-8 h-8 text-blue-400 animate-spin-slow" />
+            </div>
+          </div>
+          <h3 className="text-base font-semibold text-white mb-1.5">
+            Optimizing Stream for Ultra-Smooth Playback
+          </h3>
+          <p className="text-xs text-sid-400 max-w-md mb-5 leading-relaxed">
+            {prepProgress?.status || 'Analyzing video container and preparing hardware-accelerated stream...'}
+          </p>
+
+          <div className="w-64 bg-sid-900 border border-white/[0.08] rounded-full h-2.5 overflow-hidden p-0.5 mb-3 shadow-inner">
+            <div
+              className="bg-gradient-to-r from-blue-500 to-indigo-500 h-full rounded-full transition-all duration-300"
+              style={{ width: `${prepProgress?.percent || 5}%` }}
+            />
+          </div>
+          <span className="text-[11px] font-mono text-sid-400">
+            {prepProgress?.percent ? `${prepProgress.percent}%` : 'Processing...'}
+          </span>
+        </div>
+      )}
+
       {/* Playback Error Alert */}
-      {playError && (
+      {playError && !isPreparing && (
         <div className="absolute inset-0 bg-black/85 flex flex-col items-center justify-center p-6 text-center z-40">
           <AlertTriangle className="w-12 h-12 text-amber-500 mb-3" />
           <h3 className="text-base font-semibold text-white mb-2">Video Playback Issue</h3>
           <p className="text-xs text-sid-400 max-w-md mb-6 leading-relaxed">{playError}</p>
           <div className="flex items-center gap-3">
+            <button
+              onClick={() => handleForceRemux()}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium transition-colors shadow-lg shadow-indigo-600/30"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span>Try Remux Optimization</span>
+            </button>
             <button
               onClick={() => window.electronAPI?.dialogs.showItemInFolder(currentVideo.path)}
               className="px-4 py-2 rounded-lg bg-sid-800 hover:bg-sid-700 text-sid-200 text-xs font-medium transition-colors"

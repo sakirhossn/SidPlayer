@@ -20,9 +20,18 @@ export const TitleBar: React.FC<TitleBarProps> = ({ onOpenCommandPalette }) => {
     }
   }, [])
 
-  const handleMinimize = () => window.electronAPI?.window.minimize()
-  const handleMaximize = () => window.electronAPI?.window.maximize()
-  const handleClose = () => window.electronAPI?.window.close()
+  const handleMinimize = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    window.electronAPI?.window.minimize()
+  }
+  const handleMaximize = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    window.electronAPI?.window.maximize()
+  }
+  const handleClose = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    window.electronAPI?.window.close()
+  }
 
   return (
     <div className="h-10 bg-sid-950/90 border-b border-white/[0.06] flex items-center justify-between px-3 text-xs select-none app-drag-region z-50">
@@ -36,7 +45,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({ onOpenCommandPalette }) => {
       </div>
 
       {/* Center Title or Quick Search */}
-      <div className="flex-1 flex items-center justify-center max-w-md mx-4">
+      <div className="flex-1 flex items-center justify-center max-w-md mx-4 app-no-drag">
         {currentVideo ? (
           <div className="flex items-center gap-1.5 text-sid-300 font-medium truncate text-xs">
             <Film className="w-3.5 h-3.5 text-blue-400 shrink-0" />
@@ -44,7 +53,10 @@ export const TitleBar: React.FC<TitleBarProps> = ({ onOpenCommandPalette }) => {
           </div>
         ) : (
           <button
-            onClick={onOpenCommandPalette}
+            onClick={(e) => {
+              e.stopPropagation()
+              onOpenCommandPalette()
+            }}
             className="w-full h-6 px-3 rounded-md bg-sid-900 border border-white/[0.08] hover:border-white/20 text-sid-400 hover:text-sid-200 flex items-center justify-between transition-colors app-no-drag group cursor-pointer text-xs"
           >
             <div className="flex items-center gap-2">
@@ -62,24 +74,28 @@ export const TitleBar: React.FC<TitleBarProps> = ({ onOpenCommandPalette }) => {
       <div className="flex items-center app-no-drag">
         <button
           onClick={handleMinimize}
-          className="w-10 h-10 flex items-center justify-center text-sid-400 hover:text-white hover:bg-white/[0.08] transition-colors"
+          className="w-10 h-10 flex items-center justify-center text-sid-400 hover:text-white hover:bg-white/[0.08] transition-colors app-no-drag cursor-pointer"
           title="Minimize"
         >
-          <Minus className="w-3.5 h-3.5" />
+          <Minus className="w-3.5 h-3.5 pointer-events-none" />
         </button>
         <button
           onClick={handleMaximize}
-          className="w-10 h-10 flex items-center justify-center text-sid-400 hover:text-white hover:bg-white/[0.08] transition-colors"
+          className="w-10 h-10 flex items-center justify-center text-sid-400 hover:text-white hover:bg-white/[0.08] transition-colors app-no-drag cursor-pointer"
           title={isMaximized ? 'Restore' : 'Maximize'}
         >
-          {isMaximized ? <Copy className="w-3 h-3 rotate-180" /> : <Square className="w-3 h-3" />}
+          {isMaximized ? (
+            <Copy className="w-3 h-3 rotate-180 pointer-events-none" />
+          ) : (
+            <Square className="w-3 h-3 pointer-events-none" />
+          )}
         </button>
         <button
           onClick={handleClose}
-          className="w-10 h-10 flex items-center justify-center text-sid-400 hover:text-white hover:bg-red-600 transition-colors"
+          className="w-10 h-10 flex items-center justify-center text-sid-400 hover:text-white hover:bg-red-600 transition-colors app-no-drag cursor-pointer"
           title="Close"
         >
-          <X className="w-4 h-4" />
+          <X className="w-4 h-4 pointer-events-none" />
         </button>
       </div>
     </div>

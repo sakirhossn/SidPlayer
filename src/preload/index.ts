@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import { VideoItem, Playlist, WatchHistoryItem, AppSettings, ScanProgress, SubtitleTrack, SubtitleCue } from '../shared/types'
+import { VideoItem, Playlist, WatchHistoryItem, AppSettings, ScanProgress, SubtitleTrack, SubtitleCue, PrepareMediaResult, PrepareMediaProgress } from '../shared/types'
 
 export const electronAPI = {
   window: {
@@ -45,7 +45,18 @@ export const electronAPI = {
     processSingleFile: (filePath: string): Promise<VideoItem | null> =>
       ipcRenderer.invoke('process-single-file', filePath),
     saveScreenshot: (dataUrl: string, videoTitle: string) =>
-      ipcRenderer.invoke('save-screenshot', dataUrl, videoTitle)
+      ipcRenderer.invoke('save-screenshot', dataUrl, videoTitle),
+    preparePlayableMedia: (video: VideoItem, forceRemux = false): Promise<PrepareMediaResult> =>
+      ipcRenderer.invoke('prepare-playable-media', video, forceRemux),
+    cancelTransmux: (videoId: string): Promise<void> =>
+      ipcRenderer.invoke('cancel-transmux', videoId),
+    onPrepareProgress: (callback: (progress: PrepareMediaProgress) => void) => {
+      const listener = (_: any, p: PrepareMediaProgress) => callback(p)
+      ipcRenderer.on('prepare-media-progress', listener)
+      return () => {
+        ipcRenderer.removeListener('prepare-media-progress', listener)
+      }
+    }
   },
   subtitles: {
     getSiblingSubtitles: (videoPath: string): Promise<SubtitleTrack[]> =>

@@ -12,6 +12,7 @@ import { scanFolder, cancelScan } from './scanner'
 import { probeMedia } from './mediaInfo'
 import { generateThumbnail } from './thumbnails'
 import { detectSiblingSubtitles, parseSubtitleFile } from './subtitles'
+import { preparePlayableMedia, cancelTransmux } from './transmuxer'
 import { VideoItem, Playlist, WatchHistoryItem, AppSettings } from '../shared/types'
 
 // Register privileged scheme before app ready
@@ -80,7 +81,9 @@ function createWindow(): void {
     backgroundColor: '#07080b',
     show: false,
     webPreferences: {
-      preload: path.join(__dirname, '../preload/index.js'),
+      preload: fs.existsSync(path.join(__dirname, '../preload/index.cjs'))
+        ? path.join(__dirname, '../preload/index.cjs')
+        : path.join(__dirname, '../preload/index.js'),
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: false,
@@ -268,6 +271,17 @@ ipcMain.handle('scan-folder', async (_event, folderPath: string, includeSubfolde
 
 ipcMain.handle('cancel-scan', () => {
   cancelScan()
+})
+
+// --- On-Demand Transmux & Media Preparation IPC ---
+ipcMain.handle('prepare-playable-media', async (_event, video: VideoItem, forceRemux = false) => {
+  return await preparePlayableMedia(video, forceRemux, (progress) => {
+    mainWindow?.webContents.send('prepare-media-progress', progress)
+  })
+})
+
+ipcMain.handle('cancel-transmux', (_event, videoId: string) => {
+  cancelTransmux(videoId)
 })
 
 // --- Subtitles IPC ---
