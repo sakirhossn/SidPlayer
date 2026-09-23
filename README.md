@@ -4,6 +4,17 @@
 
 ---
 
+## ⬇️ Download for Windows (Latest v1.0.0)
+
+| Package | Type | Download Link |
+| :--- | :--- | :--- |
+| **SidPlayer Installer** | Windows Setup (`.exe`) | [Download Installer (84 MB)](https://github.com/sakirhossn/SidPlayer/releases/download/v1.0.0/SidPlayer.Setup.1.0.0.exe) |
+| **SidPlayer Portable** | Standalone Executable (`.exe`) | [Download Portable (83.8 MB)](https://github.com/sakirhossn/SidPlayer/releases/download/v1.0.0/SidPlayer.1.0.0.exe) |
+
+> **Note**: For portable version, simply download and double-click to run immediately without installation.
+
+---
+
 ## Highlights & Key Features
 
 ### 🎬 Playback & Video Engine
