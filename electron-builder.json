@@ -9,10 +9,21 @@
     "dist",
     "dist-electron"
   ],
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "SidPlayer"
+  },
   "win": {
     "target": [
       {
-        "target": "dir",
+        "target": "nsis",
+        "arch": ["x64"]
+      },
+      {
+        "target": "portable",
         "arch": ["x64"]
       }
     ],
