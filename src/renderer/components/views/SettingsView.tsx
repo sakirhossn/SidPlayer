@@ -16,12 +16,15 @@ import {
   FolderPlus,
   Trash2,
   AlertCircle,
-  Volume2
+  Volume2,
+  ArrowUpCircle,
+  RefreshCw,
+  ExternalLink
 } from 'lucide-react'
 import { useSettings } from '../../stores/useSettingsStore'
 import { useLibraryStore, loadLibrary } from '../../stores/useLibraryStore'
 import { showToast } from '../../stores/useToastStore'
-import { DEFAULT_KEY_BINDINGS } from '../../../shared/types'
+import { DEFAULT_KEY_BINDINGS, UpdateStatus } from '../../../shared/types'
 
 const ACTION_LABELS: Record<string, { label: string; category: string }> = {
   togglePlay: { label: 'Play / Pause', category: 'Playback' },
@@ -60,6 +63,11 @@ export const SettingsView: React.FC = () => {
     totalHours: 0
   })
 
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatus>({
+    status: 'idle',
+    currentVersion: '2.0.0'
+  })
+
   useEffect(() => {
     if (window.electronAPI) {
       window.electronAPI.db.getHistory().then((history) => {
@@ -72,8 +80,52 @@ export const SettingsView: React.FC = () => {
           totalHours: Math.round((totalSeconds / 3600) * 10) / 10
         })
       }).catch(() => {})
+
+      if (window.electronAPI.updater) {
+        window.electronAPI.updater.getStatus().then((s) => {
+          if (s) setUpdateStatus(s)
+        }).catch(() => {})
+
+        const unbindUpdater = window.electronAPI.updater.onStatusChange((s) => {
+          setUpdateStatus(s)
+        })
+        return () => {
+          unbindUpdater?.()
+        }
+      }
     }
   }, [])
+
+  const handleCheckForUpdates = async () => {
+    if (!window.electronAPI?.updater) return
+    try {
+      const res = await window.electronAPI.updater.checkForUpdates()
+      setUpdateStatus(res)
+      if (res.status === 'not-available') {
+        showToast('You are running the latest version of SidPlayer.', 'success')
+      } else if (res.status === 'available') {
+        showToast(`Update v${res.updateInfo?.version} available on GitHub!`, 'info')
+      }
+    } catch (err: any) {
+      showToast(`Failed to check updates: ${err.message}`, 'error')
+    }
+  }
+
+  const handleDownloadUpdate = async () => {
+    if (!window.electronAPI?.updater) return
+    try {
+      const res = await window.electronAPI.updater.downloadUpdate()
+      if (res.openedBrowser) {
+        showToast('Opened GitHub release download page in browser.', 'info')
+      }
+    } catch (err: any) {
+      showToast(`Download failed: ${err.message}`, 'error')
+    }
+  }
+
+  const handleQuitAndInstall = () => {
+    window.electronAPI?.updater?.quitAndInstall()
+  }
 
   // Keyboard shortcut recording listener
   useEffect(() => {
@@ -290,6 +342,155 @@ export const SettingsView: React.FC = () => {
                 Active (Chromium NVDEC)
               </span>
             </div>
+          </div>
+
+          {/* GitHub Auto Updates Section */}
+          <div className="bg-sid-900/60 border border-white/[0.06] rounded-xl p-5 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+                  <ArrowUpCircle className="w-4 h-4 text-blue-400" />
+                  <span>Software Updates</span>
+                  <span className="text-[10px] bg-blue-500/20 text-blue-400 px-2 py-0.5 rounded-full font-mono">
+                    v{updateStatus.currentVersion}
+                  </span>
+                </h3>
+                <p className="text-xs text-sid-400 mt-0.5">
+                  Check for new releases on GitHub and keep your player up-to-date.
+                </p>
+              </div>
+
+              <button
+                onClick={handleCheckForUpdates}
+                disabled={updateStatus.status === 'checking' || updateStatus.status === 'downloading'}
+                className="flex items-center justify-center gap-2 px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-medium transition-colors shadow-sm shadow-blue-500/20"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${updateStatus.status === 'checking' ? 'animate-spin' : ''}`} />
+                <span>{updateStatus.status === 'checking' ? 'Checking GitHub...' : 'Check for Updates'}</span>
+              </button>
+            </div>
+
+            {/* Auto check toggle */}
+            <div className="flex items-center justify-between pt-2 border-t border-white/[0.04]">
+              <div>
+                <h4 className="text-xs font-semibold text-white">Check for Updates on Startup</h4>
+                <p className="text-[11px] text-sid-400 mt-0.5">
+                  Automatically check GitHub for new versions when SidPlayer launches
+                </p>
+              </div>
+              <input
+                type="checkbox"
+                checked={settings.autoUpdateCheck !== false}
+                onChange={(e) => updateSettings({ autoUpdateCheck: e.target.checked })}
+                className="w-4 h-4 accent-blue-600 rounded cursor-pointer"
+              />
+            </div>
+
+            {/* Status Feedback */}
+            {updateStatus.status === 'available' && updateStatus.updateInfo && (
+              <div className="p-4 rounded-xl bg-blue-500/10 border border-blue-500/30 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-blue-400" />
+                    <span className="text-xs font-bold text-white">
+                      New Release Available: v{updateStatus.updateInfo.version}
+                    </span>
+                  </div>
+                  {updateStatus.updateInfo.downloadUrl && (
+                    <a
+                      href={updateStatus.updateInfo.downloadUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-[11px] text-blue-400 hover:underline flex items-center gap-1"
+                    >
+                      <span>View on GitHub</span>
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
+                  )}
+                </div>
+
+                {updateStatus.updateInfo.releaseNotes && (
+                  <div className="p-2.5 rounded-lg bg-black/40 text-[11px] text-sid-300 max-h-32 overflow-y-auto whitespace-pre-wrap font-mono">
+                    {typeof updateStatus.updateInfo.releaseNotes === 'string'
+                      ? updateStatus.updateInfo.releaseNotes
+                      : JSON.stringify(updateStatus.updateInfo.releaseNotes, null, 2)}
+                  </div>
+                )}
+
+                <div className="flex items-center gap-3 pt-1">
+                  <button
+                    onClick={handleDownloadUpdate}
+                    className="flex items-center gap-2 px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium transition-colors shadow-sm shadow-emerald-500/20"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Download & Install Update</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {updateStatus.status === 'downloading' && (
+              <div className="p-4 rounded-xl bg-sid-950/80 border border-white/[0.08] space-y-2">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-white font-medium">Downloading update from GitHub...</span>
+                  <span className="text-blue-400 font-mono font-bold">
+                    {updateStatus.progress?.percent || 0}%
+                  </span>
+                </div>
+                <div className="w-full h-2 rounded-full bg-sid-800 overflow-hidden">
+                  <div
+                    className="h-full bg-blue-500 transition-all duration-300"
+                    style={{ width: `${updateStatus.progress?.percent || 0}%` }}
+                  />
+                </div>
+                {updateStatus.progress?.bytesPerSecond && (
+                  <p className="text-[10px] text-sid-400">
+                    Speed: {Math.round(updateStatus.progress.bytesPerSecond / 1024)} KB/s
+                  </p>
+                )}
+              </div>
+            )}
+
+            {updateStatus.status === 'downloaded' && (
+              <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-between">
+                <div>
+                  <div className="flex items-center gap-2 text-emerald-400 font-bold text-xs">
+                    <Check className="w-4 h-4" />
+                    <span>Update Ready to Install!</span>
+                  </div>
+                  <p className="text-[11px] text-sid-300 mt-0.5">
+                    SidPlayer will close, install the latest version, and relaunch automatically.
+                  </p>
+                </div>
+                <button
+                  onClick={handleQuitAndInstall}
+                  className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-colors shadow-md shadow-emerald-500/30"
+                >
+                  Restart & Install Now
+                </button>
+              </div>
+            )}
+
+            {updateStatus.status === 'not-available' && (
+              <p className="text-[11px] text-emerald-400 flex items-center gap-1.5 pt-1">
+                <Check className="w-3.5 h-3.5" />
+                <span>You are currently running the latest version of SidPlayer (v{updateStatus.currentVersion}).</span>
+              </p>
+            )}
+
+            {updateStatus.status === 'error' && (
+              <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 flex items-center justify-between text-[11px] text-red-400">
+                <span>{updateStatus.error || 'Failed to check GitHub releases'}</span>
+                <a
+                  href="https://github.com/sakirhossn/SidPlayer/releases"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="underline hover:text-red-300 ml-2 shrink-0"
+                >
+                  Open Releases on GitHub
+                </a>
+              </div>
+            )}
           </div>
         </div>
       )}

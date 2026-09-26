@@ -14,6 +14,7 @@ import { generateThumbnail, generateFilmstrip } from './thumbnails'
 import { detectSiblingSubtitles, parseSubtitleFile, extractEmbeddedSubtitle } from './subtitles'
 import { preparePlayableMedia, cancelTransmux, switchAudioTrack, captureGifSegment } from './transmuxer'
 import { folderWatcher } from './watcher'
+import { initAutoUpdater } from './updater'
 import { VideoItem, Playlist, WatchHistoryItem, AppSettings, PrepareMediaProgress } from '../shared/types'
 
 // Register privileged scheme before app ready
@@ -131,6 +132,11 @@ app.whenReady().then(() => {
     folderWatcher.updateFolders(store.getSettings().watchedFolders || [])
   } catch (e) {
     console.warn('Failed to start folder watchers:', e)
+  }
+
+  // Initialize GitHub Auto Updater
+  if (mainWindow) {
+    initAutoUpdater(mainWindow)
   }
 
   app.on('activate', () => {

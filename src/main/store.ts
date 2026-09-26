@@ -35,7 +35,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   keyBindings: { ...DEFAULT_KEY_BINDINGS },
   normalizeAudio: false,
   persistVideoFilters: false,
-  folderLocks: {}
+  folderLocks: {},
+  autoUpdateCheck: true
 }
 
 export class AppStore {

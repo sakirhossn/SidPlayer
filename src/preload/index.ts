@@ -9,7 +9,8 @@ import {
   SubtitleCue,
   PrepareMediaResult,
   PrepareMediaProgress,
-  Bookmark
+  Bookmark,
+  UpdateStatus
 } from '../shared/types'
 
 export const electronAPI = {
@@ -134,6 +135,20 @@ export const electronAPI = {
     getSettings: (): Promise<AppSettings> => ipcRenderer.invoke('db-get-settings'),
     updateSettings: (settings: Partial<AppSettings>): Promise<AppSettings> =>
       ipcRenderer.invoke('db-update-settings', settings)
+  },
+  updater: {
+    checkForUpdates: (): Promise<UpdateStatus> => ipcRenderer.invoke('updater-check-for-updates'),
+    downloadUpdate: (): Promise<{ success: boolean; error?: string; openedBrowser?: boolean }> =>
+      ipcRenderer.invoke('updater-download-update'),
+    quitAndInstall: (): Promise<void> => ipcRenderer.invoke('updater-quit-and-install'),
+    getStatus: (): Promise<UpdateStatus> => ipcRenderer.invoke('updater-get-status'),
+    onStatusChange: (callback: (status: UpdateStatus) => void) => {
+      const listener = (_: any, status: UpdateStatus) => callback(status)
+      ipcRenderer.on('updater-status-changed', listener)
+      return () => {
+        ipcRenderer.removeListener('updater-status-changed', listener)
+      }
+    }
   }
 }
 

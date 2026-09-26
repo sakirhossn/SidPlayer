@@ -25,7 +25,7 @@ export const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
             </div>
             <div>
               <h3 className="text-sm font-bold text-white">SidPlayer Desktop</h3>
-              <span className="text-[10px] text-blue-400 font-mono font-medium">Version 1.0.0 Production</span>
+              <span className="text-[10px] text-blue-400 font-mono font-medium">Version 2.0.0 Production</span>
             </div>
           </div>
           <button

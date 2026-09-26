@@ -5,6 +5,13 @@
   "directories": {
     "output": "release"
   },
+  "publish": [
+    {
+      "provider": "github",
+      "owner": "sakirhossn",
+      "repo": "SidPlayer"
+    }
+  ],
   "files": [
     "dist",
     "dist-electron"

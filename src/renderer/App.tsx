@@ -55,9 +55,23 @@ export const App: React.FC = () => {
         loadLibrary()
       })
 
+      const unbindUpdater = window.electronAPI.updater?.onStatusChange((status) => {
+        if (status.status === 'available' && status.updateInfo) {
+          showToast(`Update v${status.updateInfo.version} available on GitHub! Open Settings to review.`, 'info', 6000)
+        } else if (status.status === 'downloaded') {
+          showToast(`Update downloaded! Ready to install from Settings.`, 'success', 6000)
+        }
+      })
+
+      // Background startup check for releases
+      setTimeout(() => {
+        window.electronAPI?.updater?.checkForUpdates().catch(() => {})
+      }, 4000)
+
       return () => {
         unbind?.()
         unbindWatcher?.()
+        unbindUpdater?.()
       }
     }
   }, [])

@@ -138,6 +138,7 @@ export interface AppSettings {
   persistVideoFilters: boolean
   savedFilters?: VideoFilters
   folderLocks: Record<string, string> // folder -> hashed PIN
+  autoUpdateCheck: boolean
 }
 
 export interface ScanProgress {
@@ -192,5 +193,27 @@ export interface PrepareMediaResult {
   ready: boolean
   playablePath: string
   isOptimized: boolean
+  error?: string
+}
+
+export interface UpdateInfo {
+  version: string
+  releaseDate?: string
+  releaseNotes?: string | Array<{ version: string; note: string | null }>
+  downloadUrl?: string
+}
+
+export interface UpdateProgress {
+  percent: number
+  bytesPerSecond: number
+  transferred: number
+  total: number
+}
+
+export interface UpdateStatus {
+  status: 'idle' | 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'error'
+  currentVersion: string
+  updateInfo?: UpdateInfo
+  progress?: UpdateProgress
   error?: string
 }
