@@ -1,6 +1,10 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import os from 'node:os'
+import crypto from 'node:crypto'
+import { spawn } from 'node:child_process'
 import { SubtitleTrack, SubtitleCue } from '../shared/types'
+import { findFfmpeg } from './transmuxer'
 
 const SUB_EXTENSIONS = ['.srt', '.vtt', '.ass', '.ssa']
 
@@ -223,4 +227,56 @@ export function parseAss(content: string): SubtitleCue[] {
   }
 
   return cues.sort((a, b) => a.startTime - b.startTime)
+}
+
+export async function extractEmbeddedSubtitle(
+  videoPath: string,
+  streamIndex: number,
+  format?: string
+): Promise<string> {
+  const normalizedFormat = (format || '').toLowerCase()
+  let ext = 'srt'
+  if (normalizedFormat.includes('ass') || normalizedFormat.includes('ssa')) {
+    ext = 'ass'
+  } else if (normalizedFormat.includes('vtt')) {
+    ext = 'vtt'
+  }
+
+  const tempDir = path.join(process.env.TEMP || os.tmpdir(), 'SidPlayer', 'subtitles')
+  if (!fs.existsSync(tempDir)) {
+    fs.mkdirSync(tempDir, { recursive: true })
+  }
+
+  const hash = crypto.createHash('md5').update(`${videoPath}_stream_${streamIndex}`).digest('hex')
+  const outPath = path.join(tempDir, `${hash}_s${streamIndex}.${ext}`)
+
+  if (fs.existsSync(outPath) && fs.statSync(outPath).size > 0) {
+    return outPath
+  }
+
+  const ffmpegBin = findFfmpeg()
+  const args = ['-y', '-i', videoPath, '-map', `0:${streamIndex}`, outPath]
+
+  return new Promise((resolve, reject) => {
+    const proc = spawn(ffmpegBin, args)
+    proc.on('close', (code) => {
+      if (code === 0 && fs.existsSync(outPath) && fs.statSync(outPath).size > 0) {
+        resolve(outPath)
+      } else {
+        // Fallback: convert to srt if direct extraction failed
+        const fallbackPath = path.join(tempDir, `${hash}_s${streamIndex}.srt`)
+        const fallbackArgs = ['-y', '-i', videoPath, '-map', `0:${streamIndex}`, '-c:s', 'srt', fallbackPath]
+        const proc2 = spawn(ffmpegBin, fallbackArgs)
+        proc2.on('close', (code2) => {
+          if (code2 === 0 && fs.existsSync(fallbackPath) && fs.statSync(fallbackPath).size > 0) {
+            resolve(fallbackPath)
+          } else {
+            reject(new Error(`Failed to extract embedded subtitle stream ${streamIndex}: exit code ${code2}`))
+          }
+        })
+        proc2.on('error', reject)
+      }
+    })
+    proc.on('error', reject)
+  })
 }

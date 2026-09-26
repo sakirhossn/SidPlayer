@@ -13,7 +13,10 @@ import {
   Camera,
   Info,
   ExternalLink,
-  Repeat
+  Repeat,
+  Headphones,
+  Bookmark as BookmarkIcon,
+  Film
 } from 'lucide-react'
 import {
   usePlayerStore,
@@ -27,7 +30,10 @@ import {
   togglePiP,
   toggleInfoModal,
   toggleABRepeatPoint,
-  captureScreenshot
+  captureScreenshot,
+  setAudioTrack,
+  exportABGif,
+  addBookmarkAtCurrentTime
 } from '../../stores/usePlayerStore'
 import { AspectRatioMode } from '@shared/types'
 
@@ -45,6 +51,8 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, onClose }) => {
     aspectRatio,
     subtitles,
     activeSubtitleId,
+    audioTracks,
+    activeAudioTrackId,
     currentVideo,
     abRepeat
   } = usePlayerStore()
@@ -175,6 +183,34 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, onClose }) => {
         </div>
       </div>
 
+      {/* Audio Track */}
+      {audioTracks.length > 1 && (
+        <div className="px-2 py-1">
+          <div className="flex items-center gap-1.5 text-sid-400 text-[11px] mb-1">
+            <Headphones className="w-3 h-3 text-emerald-400" />
+            <span>Audio Track</span>
+          </div>
+          <div className="flex flex-col gap-0.5">
+            {audioTracks.map((t) => (
+              <button
+                key={t.id}
+                onClick={() => {
+                  setAudioTrack(t.id)
+                  onClose()
+                }}
+                className={`w-full text-left px-2 py-1 rounded text-[11px] truncate transition-colors ${
+                  activeAudioTrackId === t.id
+                    ? 'bg-blue-600 text-white font-semibold'
+                    : 'hover:bg-white/10 text-sid-300'
+                }`}
+              >
+                {t.title || `${t.language.toUpperCase()} (${t.codec || 'Audio'})`}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="h-px bg-white/[0.08] my-1" />
 
       {/* A-B Loop */}
@@ -190,6 +226,37 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, onClose }) => {
           <span>{abRepeat.enabled ? 'A-B Loop: Next Step' : 'Set A-B Loop'}</span>
         </div>
         <kbd className="text-[10px] text-sid-500 font-mono">R</kbd>
+      </button>
+
+      {/* Export A-B Loop as GIF */}
+      {abRepeat.enabled && abRepeat.start !== null && abRepeat.end !== null && (
+        <button
+          onClick={() => {
+            exportABGif()
+            onClose()
+          }}
+          className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg hover:bg-amber-600/30 text-amber-300 transition-colors"
+        >
+          <div className="flex items-center gap-2">
+            <Film className="w-3.5 h-3.5" />
+            <span>Export Loop as GIF</span>
+          </div>
+        </button>
+      )}
+
+      {/* Bookmark */}
+      <button
+        onClick={() => {
+          addBookmarkAtCurrentTime()
+          onClose()
+        }}
+        className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg hover:bg-blue-600/30 hover:text-white transition-colors"
+      >
+        <div className="flex items-center gap-2">
+          <BookmarkIcon className="w-3.5 h-3.5 text-amber-400" />
+          <span>Add Bookmark</span>
+        </div>
+        <kbd className="text-[10px] text-sid-500 font-mono">B</kbd>
       </button>
 
       {/* Screenshot */}

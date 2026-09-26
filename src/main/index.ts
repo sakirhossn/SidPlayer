@@ -10,10 +10,11 @@ import { registerMediaProtocol } from './protocol'
 import { store } from './store'
 import { scanFolder, cancelScan } from './scanner'
 import { probeMedia } from './mediaInfo'
-import { generateThumbnail } from './thumbnails'
-import { detectSiblingSubtitles, parseSubtitleFile } from './subtitles'
-import { preparePlayableMedia, cancelTransmux } from './transmuxer'
-import { VideoItem, Playlist, WatchHistoryItem, AppSettings } from '../shared/types'
+import { generateThumbnail, generateFilmstrip } from './thumbnails'
+import { detectSiblingSubtitles, parseSubtitleFile, extractEmbeddedSubtitle } from './subtitles'
+import { preparePlayableMedia, cancelTransmux, switchAudioTrack, captureGifSegment } from './transmuxer'
+import { folderWatcher } from './watcher'
+import { VideoItem, Playlist, WatchHistoryItem, AppSettings, PrepareMediaProgress } from '../shared/types'
 
 // Register privileged scheme before app ready
 protocol.registerSchemesAsPrivileged([
@@ -122,6 +123,16 @@ app.whenReady().then(() => {
   registerMediaProtocol()
   createWindow()
 
+  // Initialize live folder watcher
+  folderWatcher.setCallback((data) => {
+    mainWindow?.webContents.send('library-folder-changed', data)
+  })
+  try {
+    folderWatcher.updateFolders(store.getSettings().watchedFolders || [])
+  } catch (e) {
+    console.warn('Failed to start folder watchers:', e)
+  }
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow()
@@ -130,6 +141,7 @@ app.whenReady().then(() => {
 })
 
 app.on('window-all-closed', () => {
+  folderWatcher.stopAll()
   if (process.platform !== 'darwin') {
     app.quit()
   }
@@ -161,6 +173,29 @@ ipcMain.handle('window-set-progress', (_event, progress: number) => {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.setProgressBar(progress)
   }
+})
+
+ipcMain.handle('window-set-always-on-top', (_event, flag: boolean) => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.setAlwaysOnTop(flag)
+    return mainWindow.isAlwaysOnTop()
+  }
+  return false
+})
+
+ipcMain.handle('window-is-always-on-top', () => {
+  return mainWindow && !mainWindow.isDestroyed() ? mainWindow.isAlwaysOnTop() : false
+})
+
+ipcMain.handle('dialog-save-file', async (_event, options: { title?: string; defaultPath?: string; filters?: { name: string; extensions: string[] }[] }) => {
+  if (!mainWindow) return null
+  const res = await dialog.showSaveDialog(mainWindow, {
+    title: options?.title || 'Save File',
+    defaultPath: options?.defaultPath,
+    filters: options?.filters
+  })
+  if (res.canceled || !res.filePath) return null
+  return res.filePath
 })
 
 // --- File & Folder Picker IPC ---
@@ -274,14 +309,26 @@ ipcMain.handle('cancel-scan', () => {
 })
 
 // --- On-Demand Transmux & Media Preparation IPC ---
-ipcMain.handle('prepare-playable-media', async (_event, video: VideoItem, forceRemux = false) => {
-  return await preparePlayableMedia(video, forceRemux, (progress) => {
+ipcMain.handle('prepare-playable-media', async (_event, video: VideoItem, forceRemux = false, forceTranscode = false) => {
+  return await preparePlayableMedia(video, forceRemux, forceTranscode, (progress: PrepareMediaProgress) => {
     mainWindow?.webContents.send('prepare-media-progress', progress)
   })
 })
 
 ipcMain.handle('cancel-transmux', (_event, videoId: string) => {
   cancelTransmux(videoId)
+})
+
+ipcMain.handle('switch-audio-track', async (_event, video: VideoItem, audioTrackIndex: number) => {
+  return await switchAudioTrack(video, audioTrackIndex)
+})
+
+ipcMain.handle('capture-gif-segment', async (_event, videoPath: string, startSec: number, endSec: number) => {
+  return await captureGifSegment(videoPath, startSec, endSec)
+})
+
+ipcMain.handle('generate-filmstrip', async (_event, videoPath: string, duration: number) => {
+  return await generateFilmstrip(videoPath, duration)
 })
 
 // --- Subtitles IPC ---
@@ -291,6 +338,10 @@ ipcMain.handle('get-sibling-subtitles', (_event, videoPath: string) => {
 
 ipcMain.handle('parse-subtitle', (_event, subPath: string) => {
   return parseSubtitleFile(subPath)
+})
+
+ipcMain.handle('extract-embedded-subtitle', async (_event, videoPath: string, streamIndex: number, format?: string) => {
+  return await extractEmbeddedSubtitle(videoPath, streamIndex, format)
 })
 
 // --- Screenshot capture & save ---
@@ -336,6 +387,28 @@ ipcMain.handle('db-check-missing', () => {
   return store.getVideos()
 })
 
+ipcMain.handle('db-add-bookmark', (_event, videoId: string, timestamp: number, label?: string) => {
+  return store.addBookmark(videoId, timestamp, label)
+})
+ipcMain.handle('db-remove-bookmark', (_event, videoId: string, bookmarkId: string) => {
+  return store.removeBookmark(videoId, bookmarkId)
+})
+
+ipcMain.handle('db-set-folder-lock', (_event, folderPath: string, pin: string) => {
+  return store.setFolderLock(folderPath, pin)
+})
+ipcMain.handle('db-remove-folder-lock', (_event, folderPath: string) => {
+  return store.removeFolderLock(folderPath)
+})
+
+ipcMain.handle('db-export-backup', (_event, targetPath: string) => {
+  const success = store.exportBackup(targetPath)
+  return { success }
+})
+ipcMain.handle('db-import-backup', (_event, sourcePath: string, mode: 'merge' | 'replace' = 'merge') => {
+  return store.importBackup(sourcePath, mode)
+})
+
 ipcMain.handle('db-get-history', () => store.getHistory())
 ipcMain.handle('db-add-history', (_event, item: WatchHistoryItem) => store.addToHistory(item))
 ipcMain.handle('db-clear-history', () => store.clearHistory())
@@ -346,4 +419,10 @@ ipcMain.handle('db-update-playlist', (_event, id: string, updates: Partial<Playl
 ipcMain.handle('db-delete-playlist', (_event, id: string) => store.deletePlaylist(id))
 
 ipcMain.handle('db-get-settings', () => store.getSettings())
-ipcMain.handle('db-update-settings', (_event, settings: Partial<AppSettings>) => store.updateSettings(settings))
+ipcMain.handle('db-update-settings', (_event, settings: Partial<AppSettings>) => {
+  const updated = store.updateSettings(settings)
+  if (settings.watchedFolders !== undefined) {
+    folderWatcher.updateFolders(updated.watchedFolders || [])
+  }
+  return updated
+})

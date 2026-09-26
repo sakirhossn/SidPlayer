@@ -5,6 +5,7 @@ import { loadLibrary } from './useLibraryStore'
 
 export interface PlayerState {
   currentVideo: VideoItem | null
+  activePlayPath: string | null
   isPlaying: boolean
   currentTime: number
   duration: number
@@ -14,11 +15,13 @@ export interface PlayerState {
   playbackRate: number
   isFullscreen: boolean
   isPiP: boolean
+  isAlwaysOnTop: boolean
   aspectRatio: AspectRatioMode
   zoom: number
   panX: number
   panY: number
   filters: VideoFilters
+  normalizeAudio: boolean
   abRepeat: ABRepeat
   subtitles: SubtitleTrack[]
   activeSubtitleId: string | null
@@ -36,11 +39,13 @@ export interface PlayerState {
   upNextCountdown: number | null
   doubleClickFeedback: { side: 'left' | 'right'; label: string; key: number } | null
   volumeHUD: { show: boolean; volume: number; isMuted: boolean } | null
+  filmstripUrls: string[]
   videoElement: HTMLVideoElement | null
 }
 
 const initialPlayerState: PlayerState = {
   currentVideo: null,
+  activePlayPath: null,
   isPlaying: false,
   currentTime: 0,
   duration: 0,
@@ -50,6 +55,7 @@ const initialPlayerState: PlayerState = {
   playbackRate: 1.0,
   isFullscreen: false,
   isPiP: false,
+  isAlwaysOnTop: false,
   aspectRatio: 'original',
   zoom: 1.0,
   panX: 0,
@@ -58,8 +64,10 @@ const initialPlayerState: PlayerState = {
     brightness: 100,
     contrast: 100,
     saturation: 100,
+    gamma: 100,
     deinterlace: false
   },
+  normalizeAudio: false,
   abRepeat: {
     start: null,
     end: null,
@@ -81,6 +89,7 @@ const initialPlayerState: PlayerState = {
   upNextCountdown: null,
   doubleClickFeedback: null,
   volumeHUD: null,
+  filmstripUrls: [],
   videoElement: null
 }
 
@@ -93,13 +102,63 @@ function notify() {
   playerListeners.forEach((l) => l({ ...playerState }))
 }
 
+let audioCtx: AudioContext | null = null
+let sourceNode: MediaElementAudioSourceNode | null = null
+let compressorNode: DynamicsCompressorNode | null = null
+
+export function applyAudioNormalization(el: HTMLVideoElement | null, enable: boolean) {
+  if (!el) return
+  try {
+    const AudioCtxClass = window.AudioContext || (window as any).webkitAudioContext
+    if (!AudioCtxClass) return
+
+    if (!audioCtx) {
+      audioCtx = new AudioCtxClass()
+    }
+    if (audioCtx.state === 'suspended') {
+      audioCtx.resume().catch(() => {})
+    }
+    if (!sourceNode) {
+      sourceNode = audioCtx.createMediaElementSource(el)
+    }
+    if (!compressorNode) {
+      compressorNode = audioCtx.createDynamicsCompressor()
+      compressorNode.threshold.setValueAtTime(-24, audioCtx.currentTime)
+      compressorNode.knee.setValueAtTime(30, audioCtx.currentTime)
+      compressorNode.ratio.setValueAtTime(12, audioCtx.currentTime)
+      compressorNode.attack.setValueAtTime(0.003, audioCtx.currentTime)
+      compressorNode.release.setValueAtTime(0.25, audioCtx.currentTime)
+    }
+
+    sourceNode.disconnect()
+    compressorNode.disconnect()
+
+    if (enable) {
+      sourceNode.connect(compressorNode)
+      compressorNode.connect(audioCtx.destination)
+    } else {
+      sourceNode.connect(audioCtx.destination)
+    }
+  } catch (err) {
+    console.warn('Audio normalization setup error:', err)
+  }
+}
+
 export function registerVideoElement(el: HTMLVideoElement | null): void {
   playerState.videoElement = el
   if (el) {
     el.volume = playerState.volume / 100
     el.muted = playerState.isMuted
     el.playbackRate = playerState.playbackRate
+    if (playerState.normalizeAudio) {
+      applyAudioNormalization(el, true)
+    }
   }
+}
+
+export function setActivePlayPath(path: string | null): void {
+  playerState.activePlayPath = path
+  notify()
 }
 
 export async function playVideo(
@@ -124,6 +183,8 @@ export async function playVideo(
   }
 
   playerState.currentVideo = video
+  playerState.activePlayPath = video.path
+  playerState.filmstripUrls = []
   playerState.subtitles = subs
   playerState.activeSubtitleId = null
   playerState.subtitleCues = []
@@ -149,6 +210,18 @@ export async function playVideo(
   }
 
   notify()
+
+  // Generate filmstrip previews in background
+  if (window.electronAPI && video.duration && video.duration > 2) {
+    window.electronAPI.media.generateFilmstrip(video.path, video.duration)
+      .then((urls) => {
+        if (playerState.currentVideo?.id === video.id && urls.length > 0) {
+          playerState.filmstripUrls = urls
+          notify()
+        }
+      })
+      .catch(() => {})
+  }
 
   // Auto-select English or first subtitle track if available
   const defaultSub = subs.find((s) => s.language === 'en' || s.language === 'eng') || subs[0]
@@ -412,17 +485,144 @@ export async function selectSubtitleTrack(subId: string | null): Promise<void> {
   }
 
   const track = playerState.subtitles.find((s) => s.id === subId)
-  if (track && track.path && window.electronAPI) {
-    try {
-      const cues = await window.electronAPI.subtitles.parseSubtitle(track.path)
+  if (!track || !window.electronAPI) {
+    notify()
+    return
+  }
+
+  try {
+    let filePath = track.path
+    if (!filePath && track.streamIndex !== undefined && playerState.currentVideo) {
+      showToast(`Extracting subtitles: ${track.label}...`, 'info')
+      filePath = await window.electronAPI.subtitles.extractEmbeddedSubtitle(
+        playerState.currentVideo.path,
+        track.streamIndex,
+        track.format
+      )
+      track.path = filePath
+    }
+
+    if (filePath) {
+      const cues = await window.electronAPI.subtitles.parseSubtitle(filePath)
       playerState.subtitleCues = cues || []
       showToast(`Subtitles: ${track.label}`, 'info')
-    } catch (e) {
-      showToast('Failed to load subtitle file', 'error')
     }
+  } catch (e: any) {
+    console.error('Subtitle error:', e)
+    showToast(`Failed to load subtitle: ${e.message || e}`, 'error')
   }
+
   notify()
 }
+
+// Audio Tracks
+export async function setAudioTrack(trackId: number): Promise<void> {
+  if (!playerState.currentVideo || !window.electronAPI) return
+  const track = playerState.audioTracks.find((t) => t.id === trackId)
+  if (!track) return
+
+  playerState.activeAudioTrackId = trackId
+  notify()
+  showToast(`Switching audio to: ${track.title || track.language.toUpperCase() || `Track ${track.id}`}`, 'info')
+
+  try {
+    const audioIdx = track.audioIndex !== undefined ? track.audioIndex : trackId
+    const newPlayPath = await window.electronAPI.media.switchAudioTrack(playerState.currentVideo, audioIdx)
+    const el = playerState.videoElement
+    const savedTime = el?.currentTime || playerState.currentTime
+    const wasPlaying = playerState.isPlaying
+
+    playerState.activePlayPath = newPlayPath
+    notify()
+
+    if (el) {
+      const handleLoaded = () => {
+        el.currentTime = savedTime
+        if (wasPlaying) {
+          el.play().catch(() => {})
+        }
+        el.removeEventListener('loadedmetadata', handleLoaded)
+      }
+      el.addEventListener('loadedmetadata', handleLoaded)
+    }
+    showToast(`Audio: ${track.title || track.language.toUpperCase()}`, 'success')
+  } catch (err: any) {
+    showToast(`Failed to switch audio track: ${err.message}`, 'error')
+  }
+}
+
+// Audio Normalization (Loudness Equalizer)
+export function toggleAudioNormalization(): void {
+  playerState.normalizeAudio = !playerState.normalizeAudio
+  if (playerState.videoElement) {
+    applyAudioNormalization(playerState.videoElement, playerState.normalizeAudio)
+  }
+  notify()
+  showToast(`Audio Normalizer: ${playerState.normalizeAudio ? 'ON' : 'OFF'}`, 'info')
+}
+
+// Bookmarks
+export async function addBookmarkAtCurrentTime(label?: string): Promise<void> {
+  if (!playerState.currentVideo || !window.electronAPI) return
+  try {
+    const curTime = playerState.videoElement?.currentTime || playerState.currentTime
+    const bookmark = await window.electronAPI.db.addBookmark(playerState.currentVideo.id, curTime, label)
+    if (!playerState.currentVideo.bookmarks) {
+      playerState.currentVideo.bookmarks = []
+    }
+    playerState.currentVideo.bookmarks.push(bookmark)
+    notify()
+    showToast(`Bookmark added at ${formatSecs(curTime)}`, 'success', 2000)
+  } catch (err: any) {
+    showToast(`Failed to add bookmark: ${err.message}`, 'error')
+  }
+}
+
+export async function removeBookmark(bookmarkId: string): Promise<void> {
+  if (!playerState.currentVideo || !window.electronAPI) return
+  try {
+    await window.electronAPI.db.removeBookmark(playerState.currentVideo.id, bookmarkId)
+    if (playerState.currentVideo.bookmarks) {
+      playerState.currentVideo.bookmarks = playerState.currentVideo.bookmarks.filter((b) => b.id !== bookmarkId)
+    }
+    notify()
+    showToast('Bookmark removed', 'info')
+  } catch (err: any) {
+    showToast(`Failed to remove bookmark: ${err.message}`, 'error')
+  }
+}
+
+// A-B Repeat GIF export
+export async function exportABGif(): Promise<void> {
+  const ab = playerState.abRepeat
+  if (!playerState.currentVideo || !window.electronAPI || ab.start === null || ab.end === null) {
+    showToast('Set A-B points first before exporting GIF', 'warning')
+    return
+  }
+
+  showToast('Creating GIF from A-B loop...', 'info', 4000)
+  try {
+    const res = await window.electronAPI.media.captureGifSegment(playerState.currentVideo.path, ab.start, ab.end)
+    if (res.success && res.filePath) {
+      showToast(`GIF saved to Pictures/SidPlayer!`, 'success', 5000)
+    } else {
+      showToast(`GIF generation failed: ${res.error}`, 'error')
+    }
+  } catch (err: any) {
+    showToast(`GIF error: ${err.message}`, 'error')
+  }
+}
+
+// Always on top / Mini player
+export async function toggleAlwaysOnTop(): Promise<void> {
+  if (!window.electronAPI) return
+  const nextVal = !playerState.isAlwaysOnTop
+  const res = await window.electronAPI.window.setAlwaysOnTop(nextVal)
+  playerState.isAlwaysOnTop = res
+  notify()
+  showToast(res ? 'Always on Top: ON' : 'Always on Top: OFF', 'info')
+}
+
 
 export function cycleSubtitles(): void {
   const tracks = playerState.subtitles

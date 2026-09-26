@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { AppSettings } from '../../shared/types'
+import { AppSettings, DEFAULT_KEY_BINDINGS } from '../../shared/types'
 
 const DEFAULT_SETTINGS: AppSettings = {
   theme: 'dark',
@@ -22,7 +22,11 @@ const DEFAULT_SETTINGS: AppSettings = {
     defaultDelay: 0
   },
   watchedFolders: [],
-  autoScanWatchedFolders: true
+  autoScanWatchedFolders: true,
+  keyBindings: { ...DEFAULT_KEY_BINDINGS },
+  normalizeAudio: false,
+  persistVideoFilters: false,
+  folderLocks: {}
 }
 
 let currentSettings: AppSettings = DEFAULT_SETTINGS

@@ -8,6 +8,10 @@ describe('Formatters', () => {
     expect(formatDuration(125)).toBe('02:05')
     expect(formatDuration(3665)).toBe('01:01:05')
     expect(formatDuration(-10)).toBe('00:00')
+    // Symmetrical hour padding when reference >= 3600
+    expect(formatDuration(984, 7190)).toBe('00:16:24')
+    expect(formatDuration(7190, 7190)).toBe('01:59:50')
+    expect(formatDuration(0, 3600)).toBe('00:00:00')
   })
 
   it('formats file sizes accurately', () => {

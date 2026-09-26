@@ -50,8 +50,14 @@ export const App: React.FC = () => {
         }
       })
 
+      const unbindWatcher = window.electronAPI.watcher?.onFolderChange((data) => {
+        showToast(`Library auto-updated: ${data.filename}`, 'info', 2500)
+        loadLibrary()
+      })
+
       return () => {
         unbind?.()
+        unbindWatcher?.()
       }
     }
   }, [])

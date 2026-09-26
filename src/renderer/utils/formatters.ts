@@ -1,6 +1,8 @@
-export function formatDuration(totalSeconds: number): string {
+export function formatDuration(totalSeconds: number, referenceDuration?: number): string {
+  const showHours = (referenceDuration !== undefined && referenceDuration >= 3600) || totalSeconds >= 3600
+
   if (!totalSeconds || isNaN(totalSeconds) || totalSeconds < 0) {
-    return '00:00'
+    return showHours ? '00:00:00' : '00:00'
   }
 
   const hours = Math.floor(totalSeconds / 3600)
@@ -9,7 +11,7 @@ export function formatDuration(totalSeconds: number): string {
 
   const pad = (n: number) => n.toString().padStart(2, '0')
 
-  if (hours > 0) {
+  if (showHours) {
     return `${pad(hours)}:${pad(minutes)}:${pad(seconds)}`
   }
   return `${pad(minutes)}:${pad(seconds)}`

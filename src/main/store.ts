@@ -1,7 +1,7 @@
 import { app } from 'electron'
 import fs from 'fs'
 import path from 'path'
-import { VideoItem, Playlist, WatchHistoryItem, AppSettings } from '../shared/types'
+import { VideoItem, Playlist, WatchHistoryItem, AppSettings, Bookmark, DEFAULT_KEY_BINDINGS } from '../shared/types'
 
 interface StoreSchema {
   videos: Record<string, VideoItem>
@@ -31,7 +31,11 @@ const DEFAULT_SETTINGS: AppSettings = {
     defaultDelay: 0
   },
   watchedFolders: [],
-  autoScanWatchedFolders: true
+  autoScanWatchedFolders: true,
+  keyBindings: { ...DEFAULT_KEY_BINDINGS },
+  normalizeAudio: false,
+  persistVideoFilters: false,
+  folderLocks: {}
 }
 
 export class AppStore {
@@ -253,6 +257,114 @@ export class AppStore {
     this.data.settings = { ...this.data.settings, ...settings }
     this.saveDebounced()
     return this.data.settings
+  }
+
+  // --- Bookmarks ---
+  public addBookmark(videoId: string, time: number, title?: string): Bookmark | null {
+    const video = this.data.videos[videoId]
+    if (video) {
+      if (!video.bookmarks) video.bookmarks = []
+      const newBookmark: Bookmark = {
+        id: `bm_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        time,
+        title: title || `Bookmark @ ${Math.floor(time)}s`,
+        createdAt: Date.now()
+      }
+      video.bookmarks.push(newBookmark)
+      video.bookmarks.sort((a, b) => a.time - b.time)
+      this.saveDebounced()
+      return newBookmark
+    }
+    return null
+  }
+
+  public removeBookmark(videoId: string, bookmarkId: string): boolean {
+    const video = this.data.videos[videoId]
+    if (video && video.bookmarks) {
+      const prevLen = video.bookmarks.length
+      video.bookmarks = video.bookmarks.filter((b) => b.id !== bookmarkId)
+      if (video.bookmarks.length !== prevLen) {
+        this.saveDebounced()
+        return true
+      }
+    }
+    return false
+  }
+
+  // --- Folder Locks ---
+  public setFolderLock(folderPath: string, pinHash: string): void {
+    if (!this.data.settings.folderLocks) {
+      this.data.settings.folderLocks = {}
+    }
+    this.data.settings.folderLocks[folderPath] = pinHash
+    this.saveDebounced()
+  }
+
+  public removeFolderLock(folderPath: string): void {
+    if (this.data.settings.folderLocks && this.data.settings.folderLocks[folderPath]) {
+      delete this.data.settings.folderLocks[folderPath]
+      this.saveDebounced()
+    }
+  }
+
+  // --- Backup & Restore ---
+  public exportBackup(targetPath: string): boolean {
+    try {
+      const payload = JSON.stringify(this.data, null, 2)
+      fs.writeFileSync(targetPath, payload, 'utf-8')
+      return true
+    } catch (err) {
+      console.error('Failed to export backup:', err)
+      return false
+    }
+  }
+
+  public importBackup(sourcePath: string, mode: 'merge' | 'replace' = 'merge'): { success: boolean; count: number; error?: string } {
+    try {
+      if (!fs.existsSync(sourcePath)) {
+        return { success: false, count: 0, error: 'File does not exist' }
+      }
+      const raw = fs.readFileSync(sourcePath, 'utf-8')
+      const parsed = JSON.parse(raw)
+
+      if (!parsed || typeof parsed !== 'object' || (!parsed.videos && !parsed.settings)) {
+        return { success: false, count: 0, error: 'Invalid SidPlayer backup format' }
+      }
+
+      if (mode === 'replace') {
+        this.data = {
+          videos: parsed.videos || {},
+          playlists: Array.isArray(parsed.playlists) ? parsed.playlists : [],
+          history: Array.isArray(parsed.history) ? parsed.history : [],
+          settings: { ...DEFAULT_SETTINGS, ...(parsed.settings || {}) }
+        }
+      } else {
+        // Merge
+        this.data.videos = { ...this.data.videos, ...(parsed.videos || {}) }
+        
+        // Merge playlists by id
+        const existingPlIds = new Set(this.data.playlists.map(p => p.id))
+        const newPlaylists = (Array.isArray(parsed.playlists) ? parsed.playlists : []).filter(
+          (p: Playlist) => !existingPlIds.has(p.id)
+        )
+        this.data.playlists.push(...newPlaylists)
+
+        // Merge history by timestamp + videoId
+        const existingHist = new Set(this.data.history.map(h => `${h.videoId}_${h.timestamp}`))
+        const newHistory = (Array.isArray(parsed.history) ? parsed.history : []).filter(
+          (h: WatchHistoryItem) => !existingHist.has(`${h.videoId}_${h.timestamp}`)
+        )
+        this.data.history.push(...newHistory)
+
+        this.data.settings = { ...this.data.settings, ...(parsed.settings || {}) }
+      }
+
+      this.saveDebounced()
+      return { success: true, count: Object.keys(this.data.videos).length }
+    } catch (err: any) {
+      console.error('Failed to import backup:', err)
+      return { success: false, count: 0, error: err.message || 'Import failed' }
+    }
   }
 }
 

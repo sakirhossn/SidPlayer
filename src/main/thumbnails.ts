@@ -93,3 +93,70 @@ export async function generateThumbnail(filePath: string, duration = 0): Promise
     return null
   }
 }
+
+export async function generateFilmstrip(
+  filePath: string,
+  duration: number,
+  count = 10
+): Promise<string[]> {
+  try {
+    if (!duration || duration <= 2) return []
+
+    const userData = app.getPath('userData')
+    const hash = crypto.createHash('md5').update(filePath).digest('hex')
+    const stripDir = path.join(userData, 'thumbnails', 'filmstrip', hash)
+    if (!fs.existsSync(stripDir)) {
+      fs.mkdirSync(stripDir, { recursive: true })
+    }
+
+    const ffmpegBin = findFfmpeg()
+    const results: string[] = []
+    const step = duration / (count + 1)
+
+    const promises: Promise<string | null>[] = []
+
+    for (let i = 1; i <= count; i++) {
+      const seekSec = Math.round(step * i)
+      const framePath = path.join(stripDir, `frame_${i}.jpg`)
+
+      if (fs.existsSync(framePath) && fs.statSync(framePath).size > 0) {
+        promises.push(Promise.resolve(`media://local?path=${encodeURIComponent(framePath)}`))
+        continue
+      }
+
+      const p = new Promise<string | null>((resolve) => {
+        const args = [
+          '-ss',
+          seekSec.toString(),
+          '-i',
+          filePath,
+          '-vframes',
+          '1',
+          '-vf',
+          'scale=240:-1',
+          '-q:v',
+          '4',
+          '-y',
+          framePath
+        ]
+        execFile(ffmpegBin, args, { timeout: 6000 }, (err) => {
+          if (err || !fs.existsSync(framePath)) {
+            resolve(null)
+          } else {
+            resolve(`media://local?path=${encodeURIComponent(framePath)}`)
+          }
+        })
+      })
+      promises.push(p)
+    }
+
+    const settled = await Promise.all(promises)
+    for (const url of settled) {
+      if (url) results.push(url)
+    }
+    return results
+  } catch (err) {
+    console.warn('Failed to generate filmstrip:', err)
+    return []
+  }
+}

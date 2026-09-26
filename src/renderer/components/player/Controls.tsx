@@ -20,7 +20,10 @@ import {
   Info,
   Sliders,
   ChevronDown,
-  Plus
+  Plus,
+  Headphones,
+  Bookmark as BookmarkIcon,
+  Pin
 } from 'lucide-react'
 import {
   usePlayerStore,
@@ -40,7 +43,11 @@ import {
   playNext,
   playPrev,
   setZoom,
-  resetZoomPan
+  resetZoomPan,
+  setAudioTrack,
+  toggleAudioNormalization,
+  addBookmarkAtCurrentTime,
+  toggleAlwaysOnTop
 } from '../../stores/usePlayerStore'
 import { SeekBar } from './SeekBar'
 import { formatDuration } from '../../utils/formatters'
@@ -63,6 +70,8 @@ export const Controls: React.FC = () => {
     subtitleDelay,
     audioTracks,
     activeAudioTrackId,
+    normalizeAudio,
+    isAlwaysOnTop,
     queue,
     queueIndex
   } = usePlayerStore()
@@ -70,6 +79,7 @@ export const Controls: React.FC = () => {
   const [showTimeRemaining, setShowTimeRemaining] = useState(false)
   const [speedMenuOpen, setSpeedMenuOpen] = useState(false)
   const [subMenuOpen, setSubMenuOpen] = useState(false)
+  const [audioMenuOpen, setAudioMenuOpen] = useState(false)
   const [aspectMenuOpen, setAspectMenuOpen] = useState(false)
   const [zoomMenuOpen, setZoomMenuOpen] = useState(false)
 
@@ -198,10 +208,10 @@ export const Controls: React.FC = () => {
             title="Click to toggle remaining time"
           >
             {showTimeRemaining ? (
-              <span>-{formatDuration(Math.max(0, duration - currentTime))}</span>
+              <span>-{formatDuration(Math.max(0, duration - currentTime), duration)}</span>
             ) : (
               <span>
-                {formatDuration(currentTime)} / {formatDuration(duration)}
+                {formatDuration(currentTime, duration)} / {formatDuration(duration, duration)}
               </span>
             )}
           </div>
@@ -307,12 +317,74 @@ export const Controls: React.FC = () => {
             )}
           </div>
 
+          {/* Audio Tracks & Loudness Normalizer Menu */}
+          <div className="relative">
+            <button
+              onClick={() => {
+                setAudioMenuOpen(!audioMenuOpen)
+                setSubMenuOpen(false)
+                setSpeedMenuOpen(false)
+                setAspectMenuOpen(false)
+                setZoomMenuOpen(false)
+              }}
+              className={`p-1.5 rounded-lg hover:bg-white/10 transition-colors ${
+                audioMenuOpen ? 'text-blue-400 bg-white/10' : 'text-sid-300 hover:text-white'
+              }`}
+              title="Audio Tracks & Loudness"
+            >
+              <Headphones className="w-4 h-4" />
+            </button>
+
+            {audioMenuOpen && (
+              <div className="absolute right-0 bottom-full mb-2 w-56 glass-dropdown rounded-xl p-2 z-50 text-xs shadow-2xl border border-white/10">
+                <div className="px-2 py-1 text-sid-400 font-semibold text-[11px]">Audio Tracks</div>
+
+                {audioTracks.length === 0 ? (
+                  <div className="px-2.5 py-1 text-sid-500 text-[11px]">Default Track</div>
+                ) : (
+                  audioTracks.map((t) => (
+                    <button
+                      key={t.id}
+                      onClick={() => {
+                        setAudioTrack(t.id)
+                        setAudioMenuOpen(false)
+                      }}
+                      className={`w-full text-left px-2.5 py-1.5 rounded-lg truncate transition-colors ${
+                        activeAudioTrackId === t.id
+                          ? 'bg-blue-600 text-white font-medium'
+                          : 'hover:bg-white/10 text-sid-300'
+                      }`}
+                    >
+                      {t.title || `${t.language.toUpperCase()} (${t.codec || 'Audio'})`}
+                    </button>
+                  ))
+                )}
+
+                <div className="h-px bg-white/[0.08] my-1.5" />
+
+                <button
+                  onClick={() => toggleAudioNormalization()}
+                  className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg transition-colors ${
+                    normalizeAudio ? 'bg-emerald-600/30 text-emerald-300' : 'hover:bg-white/10 text-sid-300'
+                  }`}
+                  title="Even out quiet dialogues and loud explosions"
+                >
+                  <span className="font-medium">Loudness Normalizer</span>
+                  <span className="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-white/10">
+                    {normalizeAudio ? 'ON' : 'OFF'}
+                  </span>
+                </button>
+              </div>
+            )}
+          </div>
+
           {/* Playback Speed Menu */}
           <div className="relative">
             <button
               onClick={() => {
                 setSpeedMenuOpen(!speedMenuOpen)
                 setSubMenuOpen(false)
+                setAudioMenuOpen(false)
                 setAspectMenuOpen(false)
                 setZoomMenuOpen(false)
               }}
@@ -354,6 +426,7 @@ export const Controls: React.FC = () => {
                 setAspectMenuOpen(!aspectMenuOpen)
                 setSpeedMenuOpen(false)
                 setSubMenuOpen(false)
+                setAudioMenuOpen(false)
                 setZoomMenuOpen(false)
               }}
               className="p-1.5 rounded-lg hover:bg-white/10 hover:text-white transition-colors"
@@ -394,6 +467,7 @@ export const Controls: React.FC = () => {
                 setZoomMenuOpen(!zoomMenuOpen)
                 setSpeedMenuOpen(false)
                 setSubMenuOpen(false)
+                setAudioMenuOpen(false)
                 setAspectMenuOpen(false)
               }}
               className={`px-2 py-1 rounded-lg hover:bg-white/10 hover:text-white font-mono text-[11px] font-medium transition-colors ${
@@ -433,6 +507,15 @@ export const Controls: React.FC = () => {
             )}
           </div>
 
+          {/* Bookmark Button */}
+          <button
+            onClick={() => addBookmarkAtCurrentTime()}
+            className="p-1.5 rounded-lg hover:bg-white/10 hover:text-white transition-colors"
+            title="Add Bookmark at Current Time (B)"
+          >
+            <BookmarkIcon className="w-4 h-4 text-amber-400" />
+          </button>
+
           {/* Screenshot capture */}
           <button
             onClick={captureScreenshot}
@@ -449,6 +532,17 @@ export const Controls: React.FC = () => {
             title="Media Statistics (I)"
           >
             <Info className="w-4 h-4 text-purple-400" />
+          </button>
+
+          {/* Always on top / Mini player */}
+          <button
+            onClick={toggleAlwaysOnTop}
+            className={`p-1.5 rounded-lg hover:bg-white/10 transition-colors ${
+              isAlwaysOnTop ? 'text-blue-400 bg-white/10' : 'hover:text-white text-sid-400'
+            }`}
+            title="Pin / Always on Top"
+          >
+            <Pin className="w-4 h-4" />
           </button>
 
           {/* PiP */}

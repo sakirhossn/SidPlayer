@@ -8,12 +8,25 @@ import {
   ListPlus,
   AlertTriangle,
   FileQuestion,
-  ExternalLink
+  ExternalLink,
+  Lock,
+  Unlock,
+  Key,
+  X
 } from 'lucide-react'
 import { VideoItem } from '@shared/types'
 import { formatDuration, formatFileSize } from '../../utils/formatters'
 import { playVideo } from '../../stores/usePlayerStore'
-import { toggleFavoriteVideo, removeVideoFromLibrary, useLibraryStore, addVideoToPlaylist } from '../../stores/useLibraryStore'
+import {
+  toggleFavoriteVideo,
+  removeVideoFromLibrary,
+  useLibraryStore,
+  addVideoToPlaylist,
+  unlockFolder,
+  lockFolder
+} from '../../stores/useLibraryStore'
+import { useSettings } from '../../stores/useSettingsStore'
+import { showToast } from '../../stores/useToastStore'
 
 interface VideoCardProps {
   video: VideoItem
@@ -22,10 +35,25 @@ interface VideoCardProps {
   onRelink?: (video: VideoItem) => void
 }
 
+async function hashPin(pin: string): Promise<string> {
+  const enc = new TextEncoder().encode(pin)
+  const buf = await crypto.subtle.digest('SHA-256', enc)
+  return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, '0')).join('')
+}
+
 export const VideoCard: React.FC<VideoCardProps> = ({ video, queue = [], queueIndex = 0, onRelink }) => {
   const [menuOpen, setMenuOpen] = useState(false)
   const [playlistMenuOpen, setPlaylistMenuOpen] = useState(false)
-  const { playlists } = useLibraryStore()
+  const [pinModalOpen, setPinModalOpen] = useState(false)
+  const [setLockModalOpen, setSetLockModalOpen] = useState(false)
+  const [pinInput, setPinInput] = useState('')
+  const [pinError, setPinError] = useState(false)
+
+  const { playlists, unlockedFolders } = useLibraryStore()
+  const { settings, updateSettings } = useSettings()
+
+  const hasFolderLock = Boolean(settings.folderLocks?.[video.folder])
+  const isLocked = hasFolderLock && !unlockedFolders.includes(video.folder)
 
   const progressPercent =
     video.duration > 0 && video.resumePosition > 0
@@ -34,6 +62,10 @@ export const VideoCard: React.FC<VideoCardProps> = ({ video, queue = [], queueIn
 
   const handlePlay = (e: React.MouseEvent) => {
     e.stopPropagation()
+    if (isLocked) {
+      setPinModalOpen(true)
+      return
+    }
     playVideo(video, queue, queueIndex)
   }
 
@@ -60,6 +92,8 @@ export const VideoCard: React.FC<VideoCardProps> = ({ video, queue = [], queueIn
       className={`group relative flex flex-col bg-sid-900/80 hover:bg-sid-850 rounded-xl border transition-all duration-200 cursor-pointer overflow-hidden ${
         video.isMissing
           ? 'border-amber-500/40 opacity-75'
+          : isLocked
+          ? 'border-amber-500/30 hover:border-amber-500/50'
           : 'border-white/[0.06] hover:border-white/20 hover:shadow-xl hover:shadow-black/40 hover:-translate-y-0.5'
       }`}
     >
@@ -69,7 +103,9 @@ export const VideoCard: React.FC<VideoCardProps> = ({ video, queue = [], queueIn
           <img
             src={video.thumbnailUrl}
             alt={video.title}
-            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+            className={`w-full h-full object-cover transition-transform duration-300 group-hover:scale-105 ${
+              isLocked ? 'filter blur-xl brightness-50' : ''
+            }`}
             loading="lazy"
             onError={(e) => {
               // Hide image on error and fallback
@@ -86,12 +122,25 @@ export const VideoCard: React.FC<VideoCardProps> = ({ video, queue = [], queueIn
           </div>
         )}
 
-        {/* Hover Center Play Button */}
-        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity duration-200">
-          <div className="w-12 h-12 rounded-full bg-blue-600/90 text-white flex items-center justify-center shadow-lg shadow-blue-600/40 transform scale-90 group-hover:scale-100 transition-transform">
-            <Play className="w-5 h-5 fill-current ml-0.5" />
+        {/* Locked Folder Overlay */}
+        {isLocked && (
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex flex-col items-center justify-center gap-1.5 z-10">
+            <div className="w-10 h-10 rounded-full bg-amber-500/20 border border-amber-500/30 flex items-center justify-center text-amber-400 shadow-lg">
+              <Lock className="w-5 h-5" />
+            </div>
+            <span className="text-[11px] font-semibold text-white tracking-wide">Folder Locked</span>
+            <span className="text-[10px] text-sid-400">Click to enter PIN</span>
           </div>
-        </div>
+        )}
+
+        {/* Hover Center Play Button */}
+        {!isLocked && (
+          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity duration-200">
+            <div className="w-12 h-12 rounded-full bg-blue-600/90 text-white flex items-center justify-center shadow-lg shadow-blue-600/40 transform scale-90 group-hover:scale-100 transition-transform">
+              <Play className="w-5 h-5 fill-current ml-0.5" />
+            </div>
+          </div>
+        )}
 
         {/* Favorite Button (Top Right) */}
         <button
@@ -235,6 +284,42 @@ export const VideoCard: React.FC<VideoCardProps> = ({ video, queue = [], queueIn
 
               <div className="h-px bg-white/[0.08] my-1" />
 
+              {/* Folder Lock Action */}
+              {hasFolderLock ? (
+                <button
+                  onClick={async (e) => {
+                    e.stopPropagation()
+                    setMenuOpen(false)
+                    if (window.electronAPI) {
+                      await window.electronAPI.db.removeFolderLock(video.folder)
+                      const next = { ...settings.folderLocks }
+                      delete next[video.folder]
+                      updateSettings({ folderLocks: next })
+                      showToast('Folder lock removed', 'info')
+                    }
+                  }}
+                  className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded text-amber-300 hover:bg-amber-600/20 text-left transition-colors"
+                >
+                  <Unlock className="w-3.5 h-3.5" />
+                  <span>Remove Folder Lock</span>
+                </button>
+              ) : (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setMenuOpen(false)
+                    setPinInput('')
+                    setSetLockModalOpen(true)
+                  }}
+                  className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded text-sid-300 hover:text-white hover:bg-white/10 text-left transition-colors"
+                >
+                  <Lock className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Lock Folder with PIN...</span>
+                </button>
+              )}
+
+              <div className="h-px bg-white/[0.08] my-1" />
+
               <button
                 onClick={handleRemove}
                 className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded text-rose-400 hover:text-rose-300 hover:bg-rose-600/20 text-left transition-colors"
@@ -246,6 +331,168 @@ export const VideoCard: React.FC<VideoCardProps> = ({ video, queue = [], queueIn
           )}
         </div>
       </div>
+
+      {/* Unlock Folder PIN Modal */}
+      {pinModalOpen && (
+        <div
+          onClick={(e) => {
+            e.stopPropagation()
+            setPinModalOpen(false)
+            setPinInput('')
+            setPinError(false)
+          }}
+          className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-xs bg-sid-900 border border-white/10 rounded-2xl p-5 shadow-2xl space-y-4 animate-scale-in"
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-white font-semibold text-sm">
+                <Lock className="w-4 h-4 text-amber-400" />
+                <span>Unlock Folder</span>
+              </div>
+              <button
+                onClick={() => {
+                  setPinModalOpen(false)
+                  setPinInput('')
+                  setPinError(false)
+                }}
+                className="p-1 rounded text-sid-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-sid-400">
+              Enter the 4-digit PIN to access videos in <strong className="text-white">{video.folder.split(/[\\/]/).pop()}</strong>.
+            </p>
+
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault()
+                const stored = settings.folderLocks[video.folder]
+                const hash = await hashPin(pinInput)
+                if (hash === stored || pinInput === stored) {
+                  unlockFolder(video.folder)
+                  setPinModalOpen(false)
+                  setPinInput('')
+                  setPinError(false)
+                  playVideo(video, queue, queueIndex)
+                  showToast('Folder unlocked', 'success')
+                } else {
+                  setPinError(true)
+                }
+              }}
+              className="space-y-3"
+            >
+              <input
+                type="password"
+                maxLength={8}
+                autoFocus
+                value={pinInput}
+                onChange={(e) => {
+                  setPinInput(e.target.value)
+                  setPinError(false)
+                }}
+                placeholder="Enter PIN..."
+                className={`w-full text-center tracking-widest text-lg font-mono px-3 py-2 rounded-xl bg-sid-950 border ${
+                  pinError ? 'border-rose-500 text-rose-400' : 'border-white/10 text-white'
+                } focus:outline-none focus:border-blue-500`}
+              />
+
+              {pinError && (
+                <p className="text-[11px] text-rose-400 text-center font-medium">Incorrect PIN</p>
+              )}
+
+              <button
+                type="submit"
+                className="w-full py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs transition-colors"
+              >
+                Unlock & Play
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Set Folder Lock Modal */}
+      {setLockModalOpen && (
+        <div
+          onClick={(e) => {
+            e.stopPropagation()
+            setSetLockModalOpen(false)
+            setPinInput('')
+          }}
+          className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-xs bg-sid-900 border border-white/10 rounded-2xl p-5 shadow-2xl space-y-4 animate-scale-in"
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-white font-semibold text-sm">
+                <Lock className="w-4 h-4 text-amber-400" />
+                <span>Lock Folder</span>
+              </div>
+              <button
+                onClick={() => {
+                  setSetLockModalOpen(false)
+                  setPinInput('')
+                }}
+                className="p-1 rounded text-sid-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-sid-400">
+              Create a 4-digit PIN to lock <strong className="text-white">{video.folder.split(/[\\/]/).pop()}</strong>.
+            </p>
+
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault()
+                if (pinInput.length < 4) {
+                  showToast('PIN must be at least 4 digits', 'warning')
+                  return
+                }
+                const hash = await hashPin(pinInput)
+                if (window.electronAPI) {
+                  await window.electronAPI.db.setFolderLock(video.folder, hash)
+                }
+                updateSettings({
+                  folderLocks: {
+                    ...(settings.folderLocks || {}),
+                    [video.folder]: hash
+                  }
+                })
+                setSetLockModalOpen(false)
+                setPinInput('')
+                showToast('Folder locked with PIN', 'success')
+              }}
+              className="space-y-3"
+            >
+              <input
+                type="password"
+                maxLength={8}
+                autoFocus
+                value={pinInput}
+                onChange={(e) => setPinInput(e.target.value)}
+                placeholder="Set 4-digit PIN..."
+                className="w-full text-center tracking-widest text-lg font-mono px-3 py-2 rounded-xl bg-sid-950 border border-white/10 text-white focus:outline-none focus:border-blue-500"
+              />
+
+              <button
+                type="submit"
+                className="w-full py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-semibold text-xs transition-colors"
+              >
+                Set Lock
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

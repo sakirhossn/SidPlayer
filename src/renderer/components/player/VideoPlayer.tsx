@@ -39,7 +39,9 @@ import {
   dismissResumePrompt,
   setZoom,
   setPan,
-  getPlayerState
+  getPlayerState,
+  setActivePlayPath,
+  addBookmarkAtCurrentTime
 } from '../../stores/usePlayerStore'
 import { Controls } from './Controls'
 import { SubtitleOverlay } from './SubtitleOverlay'
@@ -48,12 +50,14 @@ import { VideoInfoModal } from './VideoInfoModal'
 import { UpNextOverlay } from './UpNextOverlay'
 import { useSettings } from '../../stores/useSettingsStore'
 import { formatDuration } from '../../utils/formatters'
+import { DEFAULT_KEY_BINDINGS } from '../../../shared/types'
 
 export const VideoPlayer: React.FC = () => {
   const videoRef = useRef<HTMLVideoElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const {
     currentVideo,
+    activePlayPath,
     isPlaying,
     currentTime,
     duration,
@@ -79,7 +83,6 @@ export const VideoPlayer: React.FC = () => {
   const [isPanning, setIsPanning] = useState(false)
   const [panStart, setPanStart] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
   const [playError, setPlayError] = useState<string | null>(null)
-  const [activePlayPath, setActivePlayPath] = useState<string | null>(null)
   const [isPreparing, setIsPreparing] = useState(false)
   const [prepProgress, setPrepProgress] = useState<{ percent: number; status: string } | null>(null)
 
@@ -240,7 +243,7 @@ export const VideoPlayer: React.FC = () => {
     }
   }
 
-  // Keyboard Shortcuts Handler
+  // Keyboard Shortcuts Handler with dynamic customizable keyBindings
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Ignore if user is typing in an input
@@ -248,141 +251,266 @@ export const VideoPlayer: React.FC = () => {
 
       resetHideTimer()
 
-      switch (e.key) {
-        case ' ':
-        case 'k':
-        case 'K':
-          e.preventDefault()
-          togglePlay()
-          break
-        case 'ArrowLeft':
-          e.preventDefault()
-          if (e.ctrlKey) {
-            playPrev()
-          } else if (e.shiftKey) {
-            seekRelative(-30, true)
-          } else {
-            seekRelative(-5)
-          }
-          break
-        case 'ArrowRight':
-          e.preventDefault()
-          if (e.ctrlKey) {
-            playNext()
-          } else if (e.shiftKey) {
-            seekRelative(30, true)
-          } else {
-            seekRelative(5)
-          }
-          break
-        case 'ArrowUp':
-          e.preventDefault()
-          setVolume(getPlayerState().volume + 5)
-          break
-        case 'ArrowDown':
-          e.preventDefault()
-          setVolume(getPlayerState().volume - 5)
-          break
-        case 'm':
-        case 'M':
-          e.preventDefault()
-          toggleMute()
-          break
-        case 'f':
-        case 'F':
-          e.preventDefault()
-          toggleFullscreen()
-          break
-        case 'p':
-        case 'P':
-          e.preventDefault()
-          togglePiP()
-          break
-        case 's':
-        case 'S':
-          e.preventDefault()
-          if (e.altKey) {
-            captureScreenshot()
-          } else {
-            cycleSubtitles()
-          }
-          break
-        case 'c':
-        case 'C':
-          e.preventDefault()
-          cycleSubtitles()
-          break
-        case 'z':
-        case 'Z':
-          e.preventDefault()
-          adjustSubtitleDelay(-0.1)
-          break
-        case 'x':
-        case 'X':
-          e.preventDefault()
-          adjustSubtitleDelay(0.1)
-          break
-        case '[':
-          e.preventDefault()
-          stepPlaybackRate(false)
-          break
-        case ']':
-          e.preventDefault()
-          stepPlaybackRate(true)
-          break
-        case 'j':
-        case 'J':
-          e.preventDefault()
-          shuttleRewind()
-          break
-        case 'l':
-        case 'L':
-          e.preventDefault()
-          shuttleFastForward()
-          break
-        case ',':
-          e.preventDefault()
-          stepFrame(false)
-          break
-        case '.':
-          e.preventDefault()
-          stepFrame(true)
-          break
-        case 'r':
-        case 'R':
-          e.preventDefault()
-          toggleABRepeatPoint()
-          break
-        case '0':
-        case 'Home':
-          e.preventDefault()
-          seek(0)
-          break
-        case 'End':
-          e.preventDefault()
-          seek(duration)
-          break
-        case 'i':
-        case 'I':
-          e.preventDefault()
+      const bindings = { ...DEFAULT_KEY_BINDINGS, ...(settings.keyBindings || {}) }
+
+      const matchesAction = (action: string): boolean => {
+        const binding = bindings[action]
+        if (!binding) return false
+        const parts = binding.split('+')
+        const reqCtrl = parts.includes('Ctrl')
+        const reqShift = parts.includes('Shift')
+        const reqAlt = parts.includes('Alt')
+        const mainKey = parts[parts.length - 1]
+
+        if (e.ctrlKey !== reqCtrl || e.shiftKey !== reqShift || e.altKey !== reqAlt) {
+          return false
+        }
+        return e.code === mainKey || e.key.toLowerCase() === mainKey.toLowerCase()
+      }
+
+      if (matchesAction('togglePlay') || e.key === ' ' || e.key === 'k' || e.key === 'K') {
+        e.preventDefault()
+        togglePlay()
+        return
+      }
+
+      if (matchesAction('seekBackLarge') || (e.key === 'ArrowLeft' && e.shiftKey)) {
+        e.preventDefault()
+        seekRelative(-30, true)
+        return
+      }
+
+      if (matchesAction('seekForwardLarge') || (e.key === 'ArrowRight' && e.shiftKey)) {
+        e.preventDefault()
+        seekRelative(30, true)
+        return
+      }
+
+      if (e.key === 'ArrowLeft' && e.ctrlKey) {
+        e.preventDefault()
+        playPrev()
+        return
+      }
+
+      if (e.key === 'ArrowRight' && e.ctrlKey) {
+        e.preventDefault()
+        playNext()
+        return
+      }
+
+      if (matchesAction('seekBack') || e.key === 'ArrowLeft' || e.key === 'j' || e.key === 'J') {
+        e.preventDefault()
+        seekRelative(-5)
+        return
+      }
+
+      if (matchesAction('seekForward') || e.key === 'ArrowRight' || e.key === 'l' || e.key === 'L') {
+        e.preventDefault()
+        seekRelative(5)
+        return
+      }
+
+      if (matchesAction('volumeUp') || e.key === 'ArrowUp') {
+        e.preventDefault()
+        setVolume(getPlayerState().volume + 5)
+        return
+      }
+
+      if (matchesAction('volumeDown') || e.key === 'ArrowDown') {
+        e.preventDefault()
+        setVolume(getPlayerState().volume - 5)
+        return
+      }
+
+      if (matchesAction('toggleMute') || e.key === 'm' || e.key === 'M') {
+        e.preventDefault()
+        toggleMute()
+        return
+      }
+
+      if (matchesAction('toggleFullscreen') || e.key === 'f' || e.key === 'F') {
+        e.preventDefault()
+        toggleFullscreen()
+        return
+      }
+
+      if (matchesAction('togglePiP') || e.key === 'p' || e.key === 'P') {
+        e.preventDefault()
+        togglePiP()
+        return
+      }
+
+      if (matchesAction('captureScreenshot') || (e.altKey && (e.key === 's' || e.key === 'S'))) {
+        e.preventDefault()
+        captureScreenshot()
+        return
+      }
+
+      if (matchesAction('cycleSubtitles') || e.key === 'c' || e.key === 'C' || e.key === 's' || e.key === 'S') {
+        e.preventDefault()
+        cycleSubtitles()
+        return
+      }
+
+      if (matchesAction('subDelayMinus') || e.key === 'z' || e.key === 'Z') {
+        e.preventDefault()
+        adjustSubtitleDelay(-0.1)
+        return
+      }
+
+      if (matchesAction('subDelayPlus') || e.key === 'x' || e.key === 'X') {
+        e.preventDefault()
+        adjustSubtitleDelay(0.1)
+        return
+      }
+
+      if (matchesAction('speedDown') || e.key === '[') {
+        e.preventDefault()
+        stepPlaybackRate(false)
+        return
+      }
+
+      if (matchesAction('speedUp') || e.key === ']') {
+        e.preventDefault()
+        stepPlaybackRate(true)
+        return
+      }
+
+      if (matchesAction('prevFrame') || e.key === ',') {
+        e.preventDefault()
+        stepFrame(false)
+        return
+      }
+
+      if (matchesAction('nextFrame') || e.key === '.') {
+        e.preventDefault()
+        stepFrame(true)
+        return
+      }
+
+      if (matchesAction('toggleABRepeat') || e.key === 'r' || e.key === 'R') {
+        e.preventDefault()
+        toggleABRepeatPoint()
+        return
+      }
+
+      if (matchesAction('addBookmark') || e.key === 'b' || e.key === 'B') {
+        e.preventDefault()
+        addBookmarkAtCurrentTime()
+        return
+      }
+
+      if (matchesAction('toggleInfo') || e.key === 'i' || e.key === 'I') {
+        e.preventDefault()
+        toggleInfoModal()
+        return
+      }
+
+      if (e.key === 'Home') {
+        e.preventDefault()
+        seek(0)
+        return
+      }
+
+      if (e.key === 'End') {
+        e.preventDefault()
+        seek(duration)
+        return
+      }
+
+      if (e.key >= '0' && e.key <= '9') {
+        e.preventDefault()
+        const pct = parseInt(e.key, 10) / 10
+        seek((videoRef.current?.duration || duration) * pct)
+        return
+      }
+
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        if (document.fullscreenElement) {
+          document.exitFullscreen().catch(() => {})
+        } else if (showInfoModal) {
           toggleInfoModal()
-          break
-        case 'Escape':
-          e.preventDefault()
-          if (document.fullscreenElement) {
-            document.exitFullscreen().catch(() => {})
-          } else if (showInfoModal) {
-            toggleInfoModal()
-          } else {
-            closePlayer()
-          }
-          break
+        } else {
+          closePlayer()
+        }
+        return
       }
     }
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [resetHideTimer, duration, showInfoModal])
+  }, [resetHideTimer, duration, showInfoModal, settings.keyBindings])
+
+  // Gamepad Controller Support
+  useEffect(() => {
+    let animId: number
+    const lastButtonStates: Record<number, boolean> = {}
+    let lastAxisTime = 0
+
+    const pollGamepad = () => {
+      const gamepads = navigator.getGamepads ? navigator.getGamepads() : []
+      const gp = Array.from(gamepads).find((g) => g !== null)
+      if (gp) {
+        const now = Date.now()
+
+        // Button 0 (A / Cross): Play / Pause
+        if (gp.buttons[0]?.pressed && !lastButtonStates[0]) {
+          togglePlay()
+        }
+        // Button 1 (B / Circle): Back / Close
+        if (gp.buttons[1]?.pressed && !lastButtonStates[1]) {
+          closePlayer()
+        }
+        // Button 2 (X / Square): Cycle subtitles
+        if (gp.buttons[2]?.pressed && !lastButtonStates[2]) {
+          cycleSubtitles()
+        }
+        // Button 3 (Y / Triangle): Fullscreen
+        if (gp.buttons[3]?.pressed && !lastButtonStates[3]) {
+          toggleFullscreen()
+        }
+        // Button 4 (L1 / Left Shoulder) or Button 14 (D-pad Left): Seek -5s
+        if ((gp.buttons[4]?.pressed && !lastButtonStates[4]) || (gp.buttons[14]?.pressed && !lastButtonStates[14])) {
+          seekRelative(-5)
+        }
+        // Button 5 (R1 / Right Shoulder) or Button 15 (D-pad Right): Seek +5s
+        if ((gp.buttons[5]?.pressed && !lastButtonStates[5]) || (gp.buttons[15]?.pressed && !lastButtonStates[15])) {
+          seekRelative(5)
+        }
+        // Button 12 (D-pad Up): Volume +5
+        if (gp.buttons[12]?.pressed && !lastButtonStates[12]) {
+          setVolume(getPlayerState().volume + 5)
+        }
+        // Button 13 (D-pad Down): Volume -5
+        if (gp.buttons[13]?.pressed && !lastButtonStates[13]) {
+          setVolume(getPlayerState().volume - 5)
+        }
+        // Button 8 (Select / Share): Screenshot
+        if (gp.buttons[8]?.pressed && !lastButtonStates[8]) {
+          captureScreenshot()
+        }
+        // Button 9 (Start / Menu): Toggle Info Modal
+        if (gp.buttons[9]?.pressed && !lastButtonStates[9]) {
+          toggleInfoModal()
+        }
+
+        // Left Stick X axis seek (with debounce)
+        if (Math.abs(gp.axes[0]) > 0.6 && now - lastAxisTime > 400) {
+          seekRelative(gp.axes[0] > 0 ? 10 : -10)
+          lastAxisTime = now
+        }
+
+        gp.buttons.forEach((b, idx) => {
+          lastButtonStates[idx] = b.pressed
+        })
+      }
+      animId = requestAnimationFrame(pollGamepad)
+    }
+
+    animId = requestAnimationFrame(pollGamepad)
+    return () => cancelAnimationFrame(animId)
+  }, [])
 
   // Mouse Wheel: Volume or Zoom
   const handleWheel = (e: React.WheelEvent) => {

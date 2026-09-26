@@ -7,7 +7,7 @@ import { VideoItem, PrepareMediaResult, PrepareMediaProgress } from '../shared/t
 
 let cachedFfmpegPath: string | null = null
 
-function findFfmpeg(): string {
+export function findFfmpeg(): string {
   if (cachedFfmpegPath) return cachedFfmpegPath
 
   const candidates = [
@@ -57,13 +57,13 @@ export function isDirectlyPlayable(video: VideoItem): boolean {
 
   // Incompatible audio codecs for standard Chromium build
   const unsupportedAudio = ['ac3', 'eac3', 'dts', 'truehd', 'wma', 'wmav2', 'mlp']
-  if (unsupportedAudio.some(a => audioCodec.includes(a))) {
+  if (unsupportedAudio.some((a) => audioCodec.includes(a))) {
     return false
   }
 
-  // Incompatible video codecs
+  // Incompatible video codecs (Note: HEVC will try direct or remux first, then transcode if OS lacks decoder)
   const unsupportedVideo = ['mpeg2video', 'mpeg1video', 'wmv3', 'vc1', 'msmpeg4', 'dvvideo', 'rv40']
-  if (unsupportedVideo.some(v => videoCodec.includes(v))) {
+  if (unsupportedVideo.some((v) => videoCodec.includes(v))) {
     return false
   }
 
@@ -85,6 +85,7 @@ export function cancelTransmux(videoId: string): void {
 export async function preparePlayableMedia(
   video: VideoItem,
   forceRemux = false,
+  forceTranscode = false,
   onProgress?: (progress: PrepareMediaProgress) => void
 ): Promise<PrepareMediaResult> {
   const cacheDir = path.join(app.getPath('temp'), 'SidPlayer', 'cache')
@@ -103,15 +104,26 @@ export async function preparePlayableMedia(
     }
   } catch {}
 
+  const videoCodec = (video.videoCodec || '').toLowerCase()
+  const audioCodec = (video.audioCodec || '').toLowerCase()
+  const format = (video.format || '').toLowerCase()
+  const ext = path.extname(video.path).toLowerCase()
+  const isMpegTs = format.includes('mpegts') || ext === '.ts' || ext === '.m2ts'
+  const isHEVC = videoCodec.includes('hevc') || videoCodec.includes('h265')
+
+  const copyableVideoCodecs = ['h264', 'avc1', 'hevc', 'h265', 'vp9', 'av1']
+  const canCopyVideo = copyableVideoCodecs.some((c) => videoCodec.includes(c))
+  const shouldTranscodeVideo = forceTranscode || (forceRemux && isHEVC) || !canCopyVideo
+
   const cacheKey = crypto
     .createHash('md5')
-    .update(`${video.path}_${statSize}_${statMtime}`)
+    .update(`${video.path}_${statSize}_${statMtime}_${shouldTranscodeVideo ? 'h264' : 'copy'}`)
     .digest('hex')
   const cachedFilePath = path.join(cacheDir, `${cacheKey}.mp4`)
   const tempFilePath = path.join(cacheDir, `${cacheKey}.temp.mp4`)
 
   // Check if already cached
-  if (!forceRemux && fs.existsSync(cachedFilePath)) {
+  if (!forceRemux && !forceTranscode && fs.existsSync(cachedFilePath)) {
     const cachedStat = fs.statSync(cachedFilePath)
     if (cachedStat.size > 1024) {
       return {
@@ -123,7 +135,7 @@ export async function preparePlayableMedia(
   }
 
   // If directly playable and not forced, return original path
-  if (!forceRemux && isDirectlyPlayable(video)) {
+  if (!forceRemux && !forceTranscode && isDirectlyPlayable(video)) {
     return {
       ready: true,
       playablePath: video.path,
@@ -133,51 +145,45 @@ export async function preparePlayableMedia(
 
   // Needs remuxing or transcoding
   return new Promise((resolve) => {
-    // Cancel any previous process for this video
     cancelTransmux(video.id)
 
     const ffmpegPath = findFfmpeg()
-    const format = (video.format || '').toLowerCase()
-    const ext = path.extname(video.path).toLowerCase()
-    const videoCodec = (video.videoCodec || '').toLowerCase()
-    const audioCodec = (video.audioCodec || '').toLowerCase()
-    const isMpegTs = format.includes('mpegts') || ext === '.ts' || ext === '.m2ts'
-
+    const is4K = (video.width && video.width >= 3840) || (video.height && video.height >= 2160)
     const args: string[] = ['-y', '-i', video.path]
 
-    // Determine Video Copy or Transcode
-    const copyableVideoCodecs = ['h264', 'avc1', 'hevc', 'h265', 'vp9', 'av1']
-    const canCopyVideo = copyableVideoCodecs.some(c => videoCodec.includes(c))
-
-    if (canCopyVideo) {
+    if (!shouldTranscodeVideo && canCopyVideo) {
       args.push('-c:v', 'copy')
     } else {
-      args.push('-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '20')
+      args.push('-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20')
     }
 
     // Determine Audio Copy or Transcode
     const copyableAudioCodecs = ['aac', 'mp3', 'opus', 'flac']
-    const canCopyAudio = copyableAudioCodecs.some(a => audioCodec.includes(a))
+    const canCopyAudio = copyableAudioCodecs.some((a) => audioCodec.includes(a))
 
     if (canCopyAudio) {
       if (isMpegTs && audioCodec.includes('aac')) {
-        // MPEG-TS ADTS header fix for MP4 container
         args.push('-c:a', 'copy', '-bsf:a', 'aac_adtstoasc')
       } else {
         args.push('-c:a', 'copy')
       }
     } else {
-      // Convert unsupported audio (AC3, EAC3, DTS, WMA) to AAC
       args.push('-c:a', 'aac', '-b:a', '192k')
     }
 
     // Output faststart MP4
     args.push('-f', 'mp4', '-movflags', '+faststart', tempFilePath)
 
+    const initialStatus = shouldTranscodeVideo
+      ? is4K
+        ? 'Transcoding 4K HEVC video to H.264 (Press Esc to cancel)...'
+        : 'Transcoding video to H.264...'
+      : 'Optimizing container for instant playback...'
+
     onProgress?.({
       videoId: video.id,
       percent: 0,
-      status: canCopyVideo ? 'Optimizing container for instant playback...' : 'Transcoding media for playback...'
+      status: initialStatus
     })
 
     const proc = spawn(ffmpegPath, args)
@@ -189,7 +195,6 @@ export async function preparePlayableMedia(
       const text = data.toString()
       stderrBuffer += text
 
-      // Parse time=HH:MM:SS.ms
       const match = text.match(/time=(\d{2}):(\d{2}):(\d{2}\.\d+)/)
       if (match && video.duration > 0) {
         const hours = parseFloat(match[1])
@@ -198,12 +203,16 @@ export async function preparePlayableMedia(
         const currentSecs = hours * 3600 + minutes * 60 + seconds
         const pct = Math.min(99, Math.max(1, Math.round((currentSecs / video.duration) * 100)))
 
+        const statusMsg = shouldTranscodeVideo
+          ? is4K
+            ? `Transcoding 4K HEVC to H.264 (${pct}%)... Press Esc to cancel`
+            : `Transcoding video (${pct}%)...`
+          : `Remuxing ${format.toUpperCase() || 'video'} to MP4 (${pct}%)...`
+
         onProgress?.({
           videoId: video.id,
           percent: pct,
-          status: canCopyVideo
-            ? `Remuxing ${format.toUpperCase() || 'video'} to MP4 (${pct}%)...`
-            : `Transcoding video (${pct}%)...`
+          status: statusMsg
         })
       }
     })
@@ -246,7 +255,6 @@ export async function preparePlayableMedia(
         }
       }
 
-      // If ffmpeg failed or was aborted
       try {
         if (fs.existsSync(tempFilePath)) {
           fs.unlinkSync(tempFilePath)
@@ -257,8 +265,126 @@ export async function preparePlayableMedia(
         ready: false,
         playablePath: video.path,
         isOptimized: false,
-        error: `Remux exited with code ${code}: ${stderrBuffer.slice(-300)}`
+        error: `Process exited with code ${code}: ${stderrBuffer.slice(-300)}`
       })
     })
   })
+}
+
+export async function switchAudioTrack(video: VideoItem, audioTrackIndex: number): Promise<string> {
+  const cacheDir = path.join(app.getPath('temp'), 'SidPlayer', 'cache')
+  if (!fs.existsSync(cacheDir)) {
+    fs.mkdirSync(cacheDir, { recursive: true })
+  }
+
+  const cacheKey = crypto
+    .createHash('md5')
+    .update(`${video.path}_${video.size}_a${audioTrackIndex}`)
+    .digest('hex')
+  const cachedPath = path.join(cacheDir, `${cacheKey}.mp4`)
+
+  if (fs.existsSync(cachedPath) && fs.statSync(cachedPath).size > 1024) {
+    return cachedPath
+  }
+
+  return new Promise((resolve, reject) => {
+    const ffmpegPath = findFfmpeg()
+    const args = [
+      '-y',
+      '-i',
+      video.path,
+      '-map',
+      '0:v:0',
+      '-map',
+      `0:a:${audioTrackIndex}`,
+      '-c:v',
+      'copy',
+      '-c:a',
+      'copy',
+      '-movflags',
+      '+faststart',
+      cachedPath
+    ]
+
+    const proc = spawn(ffmpegPath, args)
+    proc.on('close', (code) => {
+      if (code === 0 && fs.existsSync(cachedPath)) {
+        resolve(cachedPath)
+      } else {
+        // Fallback to transcoding audio to AAC if direct copy fails
+        const fallbackArgs = [
+          '-y',
+          '-i',
+          video.path,
+          '-map',
+          '0:v:0',
+          '-map',
+          `0:a:${audioTrackIndex}`,
+          '-c:v',
+          'copy',
+          '-c:a',
+          'aac',
+          '-b:a',
+          '192k',
+          '-movflags',
+          '+faststart',
+          cachedPath
+        ]
+        const proc2 = spawn(ffmpegPath, fallbackArgs)
+        proc2.on('close', (code2) => {
+          if (code2 === 0 && fs.existsSync(cachedPath)) {
+            resolve(cachedPath)
+          } else {
+            reject(new Error(`Failed to switch audio track: code ${code2}`))
+          }
+        })
+      }
+    })
+    proc.on('error', reject)
+  })
+}
+
+export async function captureGifSegment(
+  videoPath: string,
+  startSec: number,
+  endSec: number,
+  targetDir?: string
+): Promise<{ success: boolean; filePath?: string; error?: string }> {
+  try {
+    const destDir = targetDir || path.join(app.getPath('pictures'), 'SidPlayer')
+    if (!fs.existsSync(destDir)) {
+      fs.mkdirSync(destDir, { recursive: true })
+    }
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+    const outPath = path.join(destDir, `segment_${timestamp}.gif`)
+    const duration = Math.max(0.5, endSec - startSec)
+
+    const ffmpegPath = findFfmpeg()
+    const args = [
+      '-y',
+      '-ss',
+      startSec.toString(),
+      '-t',
+      duration.toString(),
+      '-i',
+      videoPath,
+      '-vf',
+      'fps=15,scale=480:-1:flags=lanczos,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse',
+      outPath
+    ]
+
+    return new Promise((resolve) => {
+      const proc = spawn(ffmpegPath, args)
+      proc.on('close', (code) => {
+        if (code === 0 && fs.existsSync(outPath)) {
+          resolve({ success: true, filePath: outPath })
+        } else {
+          resolve({ success: false, error: `GIF export failed with code ${code}` })
+        }
+      })
+      proc.on('error', (err) => resolve({ success: false, error: err.message }))
+    })
+  } catch (err: any) {
+    return { success: false, error: err.message }
+  }
 }

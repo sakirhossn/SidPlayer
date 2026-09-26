@@ -20,6 +20,7 @@ interface LibraryState {
   scanProgress: ScanProgress | null
   scanModalOpen: boolean
   pendingScanFolder: string | null
+  unlockedFolders: string[]
 }
 
 let libraryState: LibraryState = {
@@ -35,7 +36,8 @@ let libraryState: LibraryState = {
   isScanning: false,
   scanProgress: null,
   scanModalOpen: false,
-  pendingScanFolder: null
+  pendingScanFolder: null,
+  unlockedFolders: []
 }
 
 let listeners: Array<(state: LibraryState) => void> = []
@@ -243,6 +245,18 @@ export async function clearWatchHistory(): Promise<void> {
   } catch (err) {
     console.error('Failed to clear history:', err)
   }
+}
+
+export function unlockFolder(folderPath: string): void {
+  if (!libraryState.unlockedFolders.includes(folderPath)) {
+    libraryState.unlockedFolders = [...libraryState.unlockedFolders, folderPath]
+    notify()
+  }
+}
+
+export function lockFolder(folderPath: string): void {
+  libraryState.unlockedFolders = libraryState.unlockedFolders.filter((f) => f !== folderPath)
+  notify()
 }
 
 export function useLibraryStore(): LibraryState {

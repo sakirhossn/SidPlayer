@@ -10,6 +10,7 @@ export interface SubtitleTrack {
   label: string
   language: string
   path?: string
+  streamIndex?: number
   format: 'srt' | 'vtt' | 'ass' | 'ssa'
   isExternal: boolean
   cues?: SubtitleCue[]
@@ -17,11 +18,20 @@ export interface SubtitleTrack {
 
 export interface AudioTrack {
   id: number
+  streamIndex?: number
+  audioIndex?: number
   title: string
   language: string
   codec: string
   channels: number
   sampleRate: number
+}
+
+export interface Bookmark {
+  id: string
+  time: number
+  title: string
+  createdAt: number
 }
 
 export interface VideoItem {
@@ -47,8 +57,10 @@ export interface VideoItem {
   completed: boolean
   isFavorite: boolean
   thumbnailUrl: string | null
+  filmstripUrls?: string[]
   subtitles: SubtitleTrack[]
   audioTracks: AudioTrack[]
+  bookmarks?: Bookmark[]
   isMissing: boolean
   folder: string
   fingerprint: string
@@ -83,6 +95,30 @@ export interface SubtitleSettings {
   defaultDelay: number
 }
 
+export const DEFAULT_KEY_BINDINGS: Record<string, string> = {
+  togglePlay: 'Space',
+  seekBack: 'ArrowLeft',
+  seekForward: 'ArrowRight',
+  seekBackLarge: 'Shift+ArrowLeft',
+  seekForwardLarge: 'Shift+ArrowRight',
+  volumeUp: 'ArrowUp',
+  volumeDown: 'ArrowDown',
+  toggleMute: 'KeyM',
+  toggleFullscreen: 'KeyF',
+  togglePiP: 'KeyP',
+  cycleSubtitles: 'KeyC',
+  subDelayMinus: 'KeyZ',
+  subDelayPlus: 'KeyX',
+  speedDown: 'BracketLeft',
+  speedUp: 'BracketRight',
+  prevFrame: 'Comma',
+  nextFrame: 'Period',
+  toggleABRepeat: 'KeyR',
+  addBookmark: 'KeyB',
+  captureScreenshot: 'KeyS',
+  toggleInfo: 'KeyI'
+}
+
 export interface AppSettings {
   theme: 'dark' | 'midnight' | 'light' | 'system'
   autoplayNext: boolean
@@ -97,6 +133,11 @@ export interface AppSettings {
   subtitles: SubtitleSettings
   watchedFolders: string[]
   autoScanWatchedFolders: boolean
+  keyBindings: Record<string, string>
+  normalizeAudio: boolean
+  persistVideoFilters: boolean
+  savedFilters?: VideoFilters
+  folderLocks: Record<string, string> // folder -> hashed PIN
 }
 
 export interface ScanProgress {
@@ -130,6 +171,7 @@ export interface VideoFilters {
   brightness: number // 50 - 150 (default 100)
   contrast: number // 50 - 150 (default 100)
   saturation: number // 0 - 200 (default 100)
+  gamma: number // 50 - 150 (default 100)
   deinterlace: boolean
 }
 
@@ -152,4 +194,3 @@ export interface PrepareMediaResult {
   isOptimized: boolean
   error?: string
 }
-

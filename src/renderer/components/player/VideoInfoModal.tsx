@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
-import { X, Info, HardDrive, Cpu, Volume2, ShieldCheck, Film } from 'lucide-react'
-import { usePlayerStore, toggleInfoModal } from '../../stores/usePlayerStore'
+import { X, Info, HardDrive, Cpu, Volume2, ShieldCheck, Film, Bookmark as BookmarkIcon, Trash2 } from 'lucide-react'
+import { usePlayerStore, toggleInfoModal, seek, removeBookmark } from '../../stores/usePlayerStore'
 import { formatDuration, formatFileSize, formatBitrate } from '../../utils/formatters'
 
 export const VideoInfoModal: React.FC = () => {
@@ -155,6 +155,49 @@ export const VideoInfoModal: React.FC = () => {
                 <span className="text-white font-mono">{playbackRate}x</span>
               </div>
             </div>
+          </div>
+
+          {/* Bookmarks Section */}
+          <div className="bg-sid-950/60 p-3 rounded-xl border border-white/[0.04]">
+            <div className="flex items-center gap-2 text-sid-200 font-medium mb-2">
+              <BookmarkIcon className="w-3.5 h-3.5 text-amber-400" />
+              <span>Bookmarks ({currentVideo.bookmarks?.length || 0})</span>
+            </div>
+            {(!currentVideo.bookmarks || currentVideo.bookmarks.length === 0) ? (
+              <p className="text-[11px] text-sid-500 italic">No bookmarks saved yet. Press 'B' during playback to bookmark.</p>
+            ) : (
+              <div className="space-y-1.5 max-h-40 overflow-y-auto">
+                {currentVideo.bookmarks.map((bm) => (
+                  <div
+                    key={bm.id}
+                    className="flex items-center justify-between p-2 rounded-lg bg-white/[0.03] hover:bg-white/[0.06] transition-colors"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="font-mono text-amber-400 font-semibold">{formatDuration(bm.time, currentVideo.duration)}</span>
+                      <span className="text-white truncate">{bm.title || 'Timestamp Bookmark'}</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        onClick={() => {
+                          seek(bm.time)
+                          toggleInfoModal()
+                        }}
+                        className="px-2 py-0.5 rounded bg-blue-600/30 text-blue-400 hover:bg-blue-600 hover:text-white transition-colors"
+                      >
+                        Jump
+                      </button>
+                      <button
+                        onClick={() => removeBookmark(bm.id)}
+                        className="p-1 rounded text-red-400 hover:bg-red-500/20 transition-colors"
+                        title="Delete Bookmark"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 

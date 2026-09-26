@@ -3,7 +3,7 @@ import { formatDuration } from '../../utils/formatters'
 import { usePlayerStore, seek } from '../../stores/usePlayerStore'
 
 export const SeekBar: React.FC = () => {
-  const { currentTime, duration, bufferedEnd, abRepeat } = usePlayerStore()
+  const { currentTime, duration, bufferedEnd, abRepeat, currentVideo, filmstripUrls } = usePlayerStore()
   const barRef = useRef<HTMLDivElement>(null)
   const [isHovering, setIsHovering] = useState(false)
   const [hoverTime, setHoverTime] = useState(0)
@@ -124,13 +124,48 @@ export const SeekBar: React.FC = () => {
         />
       )}
 
-      {/* Hover Timestamp Badge */}
+      {/* Bookmarks Markers */}
+      {currentVideo?.bookmarks && currentVideo.bookmarks.map((b) => {
+        const bPercent = duration > 0 ? (b.time / duration) * 100 : 0
+        return (
+          <div
+            key={b.id}
+            onClick={(e) => {
+              e.stopPropagation()
+              seek(b.time)
+            }}
+            className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-2.5 h-2.5 bg-amber-400 rotate-45 border border-black/40 shadow-sm z-20 hover:scale-150 transition-transform cursor-pointer"
+            style={{ left: `${Math.min(100, Math.max(0, bPercent))}%` }}
+            title={`Bookmark: ${b.title || formatDuration(b.time, duration)}`}
+          />
+        )
+      })}
+
+      {/* Hover Timestamp Badge & Filmstrip Thumbnail */}
       {(isHovering || isDragging) && duration > 0 && (
         <div
-          className="absolute bottom-6 -translate-x-1/2 px-2 py-1 rounded bg-sid-900/95 border border-white/20 text-white text-[11px] font-mono shadow-xl pointer-events-none whitespace-nowrap z-30"
+          className="absolute bottom-6 -translate-x-1/2 flex flex-col items-center p-1.5 rounded-lg bg-sid-900/95 border border-white/20 text-white shadow-2xl pointer-events-none z-30"
           style={{ left: `${hoverX}px` }}
         >
-          {formatDuration(hoverTime)}
+          {filmstripUrls.length > 0 && (
+            <div className="w-32 h-20 rounded overflow-hidden mb-1 border border-white/10 bg-black flex items-center justify-center">
+              <img
+                src={
+                  filmstripUrls[
+                    Math.min(
+                      filmstripUrls.length - 1,
+                      Math.max(0, Math.floor((hoverTime / duration) * filmstripUrls.length))
+                    )
+                  ]
+                }
+                alt="preview"
+                className="w-full h-full object-cover"
+              />
+            </div>
+          )}
+          <span className="text-[11px] font-mono whitespace-nowrap">
+            {formatDuration(hoverTime, duration)}
+          </span>
         </div>
       )}
     </div>

@@ -1,5 +1,16 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import { VideoItem, Playlist, WatchHistoryItem, AppSettings, ScanProgress, SubtitleTrack, SubtitleCue, PrepareMediaResult, PrepareMediaProgress } from '../shared/types'
+import {
+  VideoItem,
+  Playlist,
+  WatchHistoryItem,
+  AppSettings,
+  ScanProgress,
+  SubtitleTrack,
+  SubtitleCue,
+  PrepareMediaResult,
+  PrepareMediaProgress,
+  Bookmark
+} from '../shared/types'
 
 export const electronAPI = {
   window: {
@@ -8,6 +19,8 @@ export const electronAPI = {
     close: () => ipcRenderer.invoke('window-close'),
     isMaximized: () => ipcRenderer.invoke('window-is-maximized'),
     setProgressBar: (progress: number) => ipcRenderer.invoke('window-set-progress', progress),
+    setAlwaysOnTop: (flag: boolean): Promise<boolean> => ipcRenderer.invoke('window-set-always-on-top', flag),
+    isAlwaysOnTop: (): Promise<boolean> => ipcRenderer.invoke('window-is-always-on-top'),
     onMaximizeChange: (callback: (isMax: boolean) => void) => {
       const listener = (_: any, val: boolean) => callback(val)
       ipcRenderer.on('window-maximize-change', listener)
@@ -27,6 +40,8 @@ export const electronAPI = {
     openFileDialog: (): Promise<string[] | null> => ipcRenderer.invoke('dialog-open-file'),
     openFolderDialog: (): Promise<string | null> => ipcRenderer.invoke('dialog-open-folder'),
     openSubtitleDialog: (): Promise<string | null> => ipcRenderer.invoke('dialog-open-subtitle'),
+    saveFileDialog: (options?: { title?: string; defaultPath?: string; filters?: { name: string; extensions: string[] }[] }): Promise<string | null> =>
+      ipcRenderer.invoke('dialog-save-file', options),
     showItemInFolder: (path: string) => ipcRenderer.invoke('show-item-in-folder', path)
   },
   scanner: {
@@ -41,6 +56,15 @@ export const electronAPI = {
       }
     }
   },
+  watcher: {
+    onFolderChange: (callback: (data: { folder: string; eventType: string; filename: string }) => void) => {
+      const listener = (_: any, data: any) => callback(data)
+      ipcRenderer.on('library-folder-changed', listener)
+      return () => {
+        ipcRenderer.removeListener('library-folder-changed', listener)
+      }
+    }
+  },
   media: {
     processSingleFile: (filePath: string): Promise<VideoItem | null> =>
       ipcRenderer.invoke('process-single-file', filePath),
@@ -50,6 +74,16 @@ export const electronAPI = {
       ipcRenderer.invoke('prepare-playable-media', video, forceRemux),
     cancelTransmux: (videoId: string): Promise<void> =>
       ipcRenderer.invoke('cancel-transmux', videoId),
+    switchAudioTrack: (video: VideoItem, audioTrackIndex: number): Promise<string> =>
+      ipcRenderer.invoke('switch-audio-track', video, audioTrackIndex),
+    captureGifSegment: (
+      videoPath: string,
+      startSec: number,
+      endSec: number
+    ): Promise<{ success: boolean; filePath?: string; error?: string }> =>
+      ipcRenderer.invoke('capture-gif-segment', videoPath, startSec, endSec),
+    generateFilmstrip: (videoPath: string, duration: number): Promise<string[]> =>
+      ipcRenderer.invoke('generate-filmstrip', videoPath, duration),
     onPrepareProgress: (callback: (progress: PrepareMediaProgress) => void) => {
       const listener = (_: any, p: PrepareMediaProgress) => callback(p)
       ipcRenderer.on('prepare-media-progress', listener)
@@ -62,7 +96,9 @@ export const electronAPI = {
     getSiblingSubtitles: (videoPath: string): Promise<SubtitleTrack[]> =>
       ipcRenderer.invoke('get-sibling-subtitles', videoPath),
     parseSubtitle: (subPath: string): Promise<SubtitleCue[]> =>
-      ipcRenderer.invoke('parse-subtitle', subPath)
+      ipcRenderer.invoke('parse-subtitle', subPath),
+    extractEmbeddedSubtitle: (videoPath: string, streamIndex: number, format?: string): Promise<string> =>
+      ipcRenderer.invoke('extract-embedded-subtitle', videoPath, streamIndex, format)
   },
   db: {
     getVideos: (): Promise<VideoItem[]> => ipcRenderer.invoke('db-get-videos'),
@@ -74,6 +110,18 @@ export const electronAPI = {
     relinkFile: (id: string, newPath: string): Promise<boolean> =>
       ipcRenderer.invoke('db-relink-file', id, newPath),
     checkMissing: (): Promise<VideoItem[]> => ipcRenderer.invoke('db-check-missing'),
+    addBookmark: (videoId: string, timestamp: number, label?: string): Promise<Bookmark> =>
+      ipcRenderer.invoke('db-add-bookmark', videoId, timestamp, label),
+    removeBookmark: (videoId: string, bookmarkId: string): Promise<boolean> =>
+      ipcRenderer.invoke('db-remove-bookmark', videoId, bookmarkId),
+    setFolderLock: (folderPath: string, pin: string): Promise<boolean> =>
+      ipcRenderer.invoke('db-set-folder-lock', folderPath, pin),
+    removeFolderLock: (folderPath: string): Promise<boolean> =>
+      ipcRenderer.invoke('db-remove-folder-lock', folderPath),
+    exportBackup: (targetPath: string): Promise<{ success: boolean; error?: string }> =>
+      ipcRenderer.invoke('db-export-backup', targetPath),
+    importBackup: (sourcePath: string): Promise<{ success: boolean; count?: number; error?: string }> =>
+      ipcRenderer.invoke('db-import-backup', sourcePath),
     getHistory: (): Promise<WatchHistoryItem[]> => ipcRenderer.invoke('db-get-history'),
     addToHistory: (item: WatchHistoryItem): Promise<void> => ipcRenderer.invoke('db-add-history', item),
     clearHistory: (): Promise<void> => ipcRenderer.invoke('db-clear-history'),
@@ -92,3 +140,4 @@ export const electronAPI = {
 contextBridge.exposeInMainWorld('electronAPI', electronAPI)
 
 export type ElectronAPI = typeof electronAPI
+
