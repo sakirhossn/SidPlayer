@@ -236,7 +236,9 @@ export async function playVideo(
 
 export function resumeFromSavedPosition(): void {
   if (playerState.resumePrompt && playerState.videoElement) {
-    playerState.videoElement.currentTime = playerState.resumePrompt.position
+    const pos = playerState.resumePrompt.position
+    playerState.videoElement.currentTime = pos
+    playerState.currentTime = pos
     playerState.resumePrompt = null
     notify()
     showToast('Resumed from previous position', 'info')
@@ -245,6 +247,24 @@ export function resumeFromSavedPosition(): void {
 
 export function dismissResumePrompt(): void {
   playerState.resumePrompt = null
+  notify()
+}
+
+export function setPlaying(isPlaying: boolean): void {
+  if (playerState.isPlaying !== isPlaying) {
+    playerState.isPlaying = isPlaying
+    notify()
+  }
+}
+
+export function updateTime(currentTime: number, duration?: number, bufferedEnd?: number): void {
+  playerState.currentTime = currentTime
+  if (duration !== undefined && duration > 0 && !isNaN(duration) && isFinite(duration)) {
+    playerState.duration = duration
+  }
+  if (bufferedEnd !== undefined && !isNaN(bufferedEnd) && isFinite(bufferedEnd)) {
+    playerState.bufferedEnd = bufferedEnd
+  }
   notify()
 }
 

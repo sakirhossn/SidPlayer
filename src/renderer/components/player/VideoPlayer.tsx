@@ -41,7 +41,9 @@ import {
   setPan,
   getPlayerState,
   setActivePlayPath,
-  addBookmarkAtCurrentTime
+  addBookmarkAtCurrentTime,
+  updateTime,
+  setPlaying
 } from '../../stores/usePlayerStore'
 import { Controls } from './Controls'
 import { SubtitleOverlay } from './SubtitleOverlay'
@@ -176,10 +178,28 @@ export const VideoPlayer: React.FC = () => {
     }
   }, [currentVideo?.id])
 
+  // Helper to extract buffered end for the current playhead
+  const getBufferedEnd = (cur: number) => {
+    if (!videoRef.current) return 0
+    const buffered = videoRef.current.buffered
+    if (!buffered || buffered.length === 0) return 0
+    for (let i = 0; i < buffered.length; i++) {
+      if (buffered.start(i) <= cur && cur <= buffered.end(i)) {
+        return buffered.end(i)
+      }
+    }
+    return buffered.end(buffered.length - 1)
+  }
+
   // Handle Video Time Updates
   const handleTimeUpdate = () => {
     if (!videoRef.current) return
     const cur = videoRef.current.currentTime
+    const dur = videoRef.current.duration
+    const bufEnd = getBufferedEnd(cur)
+
+    // Synchronize playhead, duration, and buffer state with player store
+    updateTime(cur, dur, bufEnd)
 
     // A-B loop check
     if (abRepeat.enabled && abRepeat.start !== null && abRepeat.end !== null) {
@@ -191,15 +211,14 @@ export const VideoPlayer: React.FC = () => {
 
     // Persist resume position periodically (every 5s)
     if (currentVideo && window.electronAPI && Math.floor(cur) % 5 === 0) {
-      const isCompleted = videoRef.current.duration > 0 && cur / videoRef.current.duration > 0.95
+      const isCompleted = dur > 0 && cur / dur > 0.95
       window.electronAPI.db.updateResume(currentVideo.id, Math.floor(cur), isCompleted)
       window.electronAPI.window.setProgressBar(
-        videoRef.current.duration > 0 ? cur / videoRef.current.duration : -1
+        dur > 0 ? cur / dur : -1
       )
     }
 
     // Up next check (within 5 seconds of end)
-    const dur = videoRef.current.duration
     if (
       dur > 15 &&
       dur - cur <= 5 &&
@@ -210,6 +229,15 @@ export const VideoPlayer: React.FC = () => {
     ) {
       startUpNextCountdown()
     }
+  }
+
+  // Handle Video Buffer Progress
+  const handleProgress = () => {
+    if (!videoRef.current) return
+    const cur = videoRef.current.currentTime
+    const dur = videoRef.current.duration
+    const bufEnd = getBufferedEnd(cur)
+    updateTime(cur, dur, bufEnd)
   }
 
   const startUpNextCountdown = () => {
@@ -234,6 +262,7 @@ export const VideoPlayer: React.FC = () => {
   }
 
   const handleVideoEnded = () => {
+    setPlaying(false)
     if (currentVideo && window.electronAPI) {
       window.electronAPI.db.updateResume(currentVideo.id, 0, true)
       window.electronAPI.window.setProgressBar(-1)
@@ -651,11 +680,19 @@ export const VideoPlayer: React.FC = () => {
         src={streamUrl || undefined}
         onClick={handleClick}
         onDoubleClick={handleDoubleClick}
+        onPlay={() => setPlaying(true)}
+        onPause={() => setPlaying(false)}
         onTimeUpdate={handleTimeUpdate}
+        onProgress={handleProgress}
         onEnded={handleVideoEnded}
         onLoadedMetadata={() => {
           if (videoRef.current) {
             registerVideoElement(videoRef.current)
+            const dur = videoRef.current.duration
+            if (dur && dur > 0 && !isNaN(dur) && isFinite(dur)) {
+              updateTime(videoRef.current.currentTime, dur, getBufferedEnd(videoRef.current.currentTime))
+            }
+            setPlaying(!videoRef.current.paused)
             videoRef.current.play().catch(() => {})
           }
         }}
