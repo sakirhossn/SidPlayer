@@ -15,6 +15,7 @@ import { detectSiblingSubtitles, parseSubtitleFile, extractEmbeddedSubtitle } fr
 import { preparePlayableMedia, cancelTransmux, switchAudioTrack, captureGifSegment } from './transmuxer'
 import { folderWatcher } from './watcher'
 import { initAutoUpdater } from './updater'
+import { registerWindowsContextMenu, unregisterWindowsContextMenu, isWindowsContextMenuRegistered } from './shellIntegration'
 import { VideoItem, Playlist, WatchHistoryItem, AppSettings, PrepareMediaProgress } from '../shared/types'
 
 // Register privileged scheme before app ready
@@ -432,3 +433,8 @@ ipcMain.handle('db-update-settings', (_event, settings: Partial<AppSettings>) =>
   }
   return updated
 })
+
+// --- Windows Shell Context Menu & Open With Integration ---
+ipcMain.handle('shell-register-context-menu', () => registerWindowsContextMenu())
+ipcMain.handle('shell-unregister-context-menu', () => unregisterWindowsContextMenu())
+ipcMain.handle('shell-is-context-menu-registered', () => isWindowsContextMenuRegistered())

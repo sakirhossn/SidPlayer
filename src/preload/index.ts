@@ -149,6 +149,14 @@ export const electronAPI = {
         ipcRenderer.removeListener('updater-status-changed', listener)
       }
     }
+  },
+  shellIntegration: {
+    register: (): Promise<{ success: boolean; error?: string }> =>
+      ipcRenderer.invoke('shell-register-context-menu'),
+    unregister: (): Promise<{ success: boolean; error?: string }> =>
+      ipcRenderer.invoke('shell-unregister-context-menu'),
+    isRegistered: (): Promise<boolean> =>
+      ipcRenderer.invoke('shell-is-context-menu-registered')
   }
 }
 

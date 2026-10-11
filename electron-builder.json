@@ -21,7 +21,8 @@
     "allowToChangeInstallationDirectory": true,
     "createDesktopShortcut": true,
     "createStartMenuShortcut": true,
-    "shortcutName": "SidPlayer"
+    "shortcutName": "SidPlayer",
+    "include": "build/installer.nsh"
   },
   "win": {
     "target": [

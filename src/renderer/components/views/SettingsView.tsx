@@ -19,7 +19,8 @@ import {
   Volume2,
   ArrowUpCircle,
   RefreshCw,
-  ExternalLink
+  ExternalLink,
+  MousePointer
 } from 'lucide-react'
 import { useSettings } from '../../stores/useSettingsStore'
 import { useLibraryStore, loadLibrary } from '../../stores/useLibraryStore'
@@ -68,8 +69,17 @@ export const SettingsView: React.FC = () => {
     currentVersion: '2.0.0'
   })
 
+  const [isShellRegistered, setIsShellRegistered] = useState<boolean | null>(null)
+  const [isUpdatingShell, setIsUpdatingShell] = useState(false)
+
   useEffect(() => {
     if (window.electronAPI) {
+      if (window.electronAPI.shellIntegration) {
+        window.electronAPI.shellIntegration.isRegistered().then((reg) => {
+          setIsShellRegistered(reg)
+        }).catch(() => {})
+      }
+
       window.electronAPI.db.getHistory().then((history) => {
         const totalWatched = history.length
         const completedCount = history.filter((h) => h.completedPercentage >= 90).length
@@ -125,6 +135,34 @@ export const SettingsView: React.FC = () => {
 
   const handleQuitAndInstall = () => {
     window.electronAPI?.updater?.quitAndInstall()
+  }
+
+  const handleToggleShellIntegration = async () => {
+    if (!window.electronAPI?.shellIntegration) return
+    setIsUpdatingShell(true)
+    try {
+      if (isShellRegistered) {
+        const res = await window.electronAPI.shellIntegration.unregister()
+        if (res.success) {
+          setIsShellRegistered(false)
+          showToast('Removed SidPlayer from Windows Explorer context menu', 'info')
+        } else {
+          showToast(`Failed: ${res.error}`, 'error')
+        }
+      } else {
+        const res = await window.electronAPI.shellIntegration.register()
+        if (res.success) {
+          setIsShellRegistered(true)
+          showToast('SidPlayer added to "Open with" & right-click menu!', 'success')
+        } else {
+          showToast(`Failed: ${res.error}`, 'error')
+        }
+      }
+    } catch (err: any) {
+      showToast(err.message || 'Error updating Windows integration', 'error')
+    } finally {
+      setIsUpdatingShell(false)
+    }
   }
 
   // Keyboard shortcut recording listener
@@ -342,6 +380,54 @@ export const SettingsView: React.FC = () => {
                 Active (Chromium NVDEC)
               </span>
             </div>
+          </div>
+
+          {/* Windows Explorer & "Open With" Menu Integration */}
+          <div className="bg-sid-900/60 border border-white/[0.06] rounded-xl p-5 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+                  <MousePointer className="w-4 h-4 text-blue-400" />
+                  <span>Windows Explorer Integration</span>
+                  {isShellRegistered !== null && (
+                    <span
+                      className={`text-[10px] px-2 py-0.5 rounded-full font-mono ${
+                        isShellRegistered
+                          ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                          : 'bg-white/10 text-sid-400'
+                      }`}
+                    >
+                      {isShellRegistered ? 'Active in Context Menu' : 'Not Registered'}
+                    </span>
+                  )}
+                </h3>
+                <p className="text-xs text-sid-400 mt-0.5">
+                  Add SidPlayer to Windows Explorer's <strong>"Open with &gt;"</strong> submenu and right-click <strong>"Play with SidPlayer"</strong> menu.
+                </p>
+              </div>
+
+              <button
+                onClick={handleToggleShellIntegration}
+                disabled={isUpdatingShell}
+                className={`flex items-center justify-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-medium transition-colors shadow-sm disabled:opacity-50 ${
+                  isShellRegistered
+                    ? 'bg-sid-800 hover:bg-rose-900/60 text-sid-300 hover:text-rose-200 border border-white/10'
+                    : 'bg-blue-600 hover:bg-blue-500 text-white shadow-blue-500/20'
+                }`}
+              >
+                {isUpdatingShell ? (
+                  <span>Applying...</span>
+                ) : isShellRegistered ? (
+                  <span>Remove from Explorer</span>
+                ) : (
+                  <span>Add to "Open with" Menu</span>
+                )}
+              </button>
+            </div>
+
+            <p className="text-[11px] text-sid-500 leading-relaxed pt-2 border-t border-white/[0.04]">
+              Associates video file formats (.mp4, .mkv, .webm, .avi, etc.) with SidPlayer without needing administrator privileges.
+            </p>
           </div>
 
           {/* GitHub Auto Updates Section */}
