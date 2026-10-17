@@ -4,19 +4,31 @@
 
 ---
 
-## ⬇️ Download for Windows (Latest v2.0.0)
+## ⬇️ Download for Windows (Latest v2.0.1)
 
 | Package | Type | Architecture | Download Link |
 | :--- | :--- | :--- | :--- |
-| **SidPlayer Installer** | Windows Setup (`.exe`) | x64 | [📥 Download Installer (80.5 MB)](https://github.com/sakirhossn/SidPlayer/releases/download/v2.0.0/SidPlayer-Setup-2.0.0.exe) |
-| **SidPlayer Portable** | Standalone Executable (`.exe`) | x64 | [⚡ Download Portable (80.3 MB)](https://github.com/sakirhossn/SidPlayer/releases/download/v2.0.0/SidPlayer.2.0.0.exe) |
+| **SidPlayer Installer** | Windows Setup (`.exe`) | x64 | [📥 Download Installer (80.5 MB)](https://github.com/sakirhossn/SidPlayer/releases/download/v2.0.1/SidPlayer-Setup-2.0.1.exe) |
+| **SidPlayer Portable** | Standalone Executable (`.exe`) | x64 | [⚡ Download Portable (80.3 MB)](https://github.com/sakirhossn/SidPlayer/releases/download/v2.0.1/SidPlayer.2.0.1.exe) |
 
-> **Upgrading from v1.0.0**: Simply download and run `SidPlayer-Setup-2.0.0.exe`. It automatically detects and updates your existing installation without losing any watch history, playlists, bookmarks, or settings.  
+> **Upgrading**: Simply download and run `SidPlayer-Setup-2.0.1.exe` or click "Check for Updates" directly inside Settings. It automatically updates your existing installation without losing any watch history, playlists, bookmarks, or settings.  
 > **Portable version**: Simply download and double-click to launch immediately without installation.
 
 ---
 
-## 🚀 What's New in v2.0.0
+## 🚀 What's New in v2.0.1
+
+- 🪟 **Windows Explorer Context Menu & "Open with" Integration**: Right-click any video file or folder in Windows Explorer to "Play with SidPlayer", or set SidPlayer as default via Windows "Open with" flyout.
+- 🛡️ **Comprehensive Security Hardening**: Strict path authorization on `media://` streaming protocol to prevent Local File Inclusion (LFI), CSP protection restored, and Electron window navigation barriers.
+- ⚡ **RFC 7233 Range Streaming & Stream Safety**: Full support for prefix, suffix (`bytes=-500`), and open-ended range requests with instant file handle destruction to eliminate Windows file locking.
+- 🔒 **Backup Import Prototype Sanitization**: Automatic stripping of `__proto__`/`constructor` properties, 50MB maximum payload limit, and transactional rollback on import failure.
+- 🎧 **Atomic Cache Safety**: Thread-safe temporary file promotion during audio track switching to prevent partial or corrupted cache files.
+- ⌨️ **Hotkey Conflict Guard**: Priority routing for user-customized shortcuts ensuring default single-key fallbacks never override remapped bindings.
+- 🧪 **Test Suite Expansion**: Comprehensive Vitest test suite now covering 46 test cases across 9 suites (+84% coverage increase).
+
+---
+
+## 🚀 Features from v2.0.0
 
 - 🔄 **Automated HEVC / H.265 Fallback**: Zero-latency transcode fallback (`libx264 -crf 20`) seamlessly activates if your Windows setup lacks native hardware HEVC decoders.
 - 🎧 **Multi-Track Audio Switcher**: Real audio stream switching (`-map 0:v:0 -map 0:a:<id>`) hot-swaps streams in real time while preserving playback position.
