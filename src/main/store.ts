@@ -39,13 +39,32 @@ const DEFAULT_SETTINGS: AppSettings = {
   autoUpdateCheck: true
 }
 
+export function sanitizeBackupPayload<T>(input: T): T {
+  if (input === null || typeof input !== 'object') {
+    return input
+  }
+
+  if (Array.isArray(input)) {
+    return input.map((item) => sanitizeBackupPayload(item)) as unknown as T
+  }
+
+  const result: Record<string, any> = {}
+  for (const [key, value] of Object.entries(input)) {
+    if (key === '__proto__' || key === 'constructor' || key === 'prototype') {
+      continue
+    }
+    result[key] = sanitizeBackupPayload(value)
+  }
+  return result as T
+}
+
 export class AppStore {
   private filePath: string
   private data: StoreSchema
   private saveTimeout: NodeJS.Timeout | null = null
 
   constructor() {
-    const userDataPath = app.getPath('userData')
+    const userDataPath = typeof app !== 'undefined' && app?.getPath ? app.getPath('userData') : process.cwd()
     this.filePath = path.join(userDataPath, 'sidplayer_data.json')
     this.data = this.load()
   }
@@ -320,48 +339,70 @@ export class AppStore {
     }
   }
 
+
   public importBackup(sourcePath: string, mode: 'merge' | 'replace' = 'merge'): { success: boolean; count: number; error?: string } {
     try {
       if (!fs.existsSync(sourcePath)) {
         return { success: false, count: 0, error: 'File does not exist' }
       }
+
+      const stat = fs.statSync(sourcePath)
+      // Enforce 50 MB maximum backup file size
+      if (stat.size > 50 * 1024 * 1024) {
+        return { success: false, count: 0, error: 'Backup file exceeds maximum allowed size (50MB)' }
+      }
+
       const raw = fs.readFileSync(sourcePath, 'utf-8')
-      const parsed = JSON.parse(raw)
+      let parsed = JSON.parse(raw)
 
       if (!parsed || typeof parsed !== 'object' || (!parsed.videos && !parsed.settings)) {
         return { success: false, count: 0, error: 'Invalid SidPlayer backup format' }
       }
 
-      if (mode === 'replace') {
-        this.data = {
-          videos: parsed.videos || {},
-          playlists: Array.isArray(parsed.playlists) ? parsed.playlists : [],
-          history: Array.isArray(parsed.history) ? parsed.history : [],
-          settings: { ...DEFAULT_SETTINGS, ...(parsed.settings || {}) }
+      // Sanitize against prototype pollution
+      parsed = sanitizeBackupPayload(parsed)
+
+      // Snapshot store state for rollback on mutation failure
+      const snapshot: StoreSchema = JSON.parse(JSON.stringify(this.data))
+
+      try {
+        if (mode === 'replace') {
+          this.data = {
+            videos: (parsed.videos && typeof parsed.videos === 'object' && !Array.isArray(parsed.videos)) ? parsed.videos : {},
+            playlists: Array.isArray(parsed.playlists) ? parsed.playlists : [],
+            history: Array.isArray(parsed.history) ? parsed.history : [],
+            settings: { ...DEFAULT_SETTINGS, ...(parsed.settings && typeof parsed.settings === 'object' ? parsed.settings : {}) }
+          }
+        } else {
+          // Merge
+          const newVideos = (parsed.videos && typeof parsed.videos === 'object' && !Array.isArray(parsed.videos)) ? parsed.videos : {}
+          this.data.videos = { ...this.data.videos, ...newVideos }
+          
+          // Merge playlists by id
+          const existingPlIds = new Set(this.data.playlists.map(p => p.id))
+          const newPlaylists = (Array.isArray(parsed.playlists) ? parsed.playlists : []).filter(
+            (p: Playlist) => p && typeof p === 'object' && p.id && !existingPlIds.has(p.id)
+          )
+          this.data.playlists.push(...newPlaylists)
+
+          // Merge history by timestamp + videoId
+          const existingHist = new Set(this.data.history.map(h => `${h.videoId}_${h.timestamp}`))
+          const newHistory = (Array.isArray(parsed.history) ? parsed.history : []).filter(
+            (h: WatchHistoryItem) => h && typeof h === 'object' && h.videoId && !existingHist.has(`${h.videoId}_${h.timestamp}`)
+          )
+          this.data.history.push(...newHistory)
+
+          if (parsed.settings && typeof parsed.settings === 'object') {
+            this.data.settings = { ...this.data.settings, ...parsed.settings }
+          }
         }
-      } else {
-        // Merge
-        this.data.videos = { ...this.data.videos, ...(parsed.videos || {}) }
-        
-        // Merge playlists by id
-        const existingPlIds = new Set(this.data.playlists.map(p => p.id))
-        const newPlaylists = (Array.isArray(parsed.playlists) ? parsed.playlists : []).filter(
-          (p: Playlist) => !existingPlIds.has(p.id)
-        )
-        this.data.playlists.push(...newPlaylists)
 
-        // Merge history by timestamp + videoId
-        const existingHist = new Set(this.data.history.map(h => `${h.videoId}_${h.timestamp}`))
-        const newHistory = (Array.isArray(parsed.history) ? parsed.history : []).filter(
-          (h: WatchHistoryItem) => !existingHist.has(`${h.videoId}_${h.timestamp}`)
-        )
-        this.data.history.push(...newHistory)
-
-        this.data.settings = { ...this.data.settings, ...(parsed.settings || {}) }
+        this.saveDebounced()
+        return { success: true, count: Object.keys(this.data.videos).length }
+      } catch (err: any) {
+        this.data = snapshot
+        throw err
       }
-
-      this.saveDebounced()
-      return { success: true, count: Object.keys(this.data.videos).length }
     } catch (err: any) {
       console.error('Failed to import backup:', err)
       return { success: false, count: 0, error: err.message || 'Import failed' }

@@ -3,33 +3,7 @@ import { execFile } from 'child_process'
 import path from 'path'
 import fs from 'fs'
 import crypto from 'crypto'
-
-let cachedFfmpegPath: string | null = null
-
-function findFfmpeg(): string {
-  if (cachedFfmpegPath) return cachedFfmpegPath
-
-  const candidates = [
-    'C:\\ffmpeg\\bin\\ffmpeg.exe',
-    'ffmpeg.exe',
-    'ffmpeg'
-  ]
-
-  for (const c of candidates) {
-    if (path.isAbsolute(c)) {
-      if (fs.existsSync(c)) {
-        cachedFfmpegPath = c
-        return c
-      }
-    } else {
-      cachedFfmpegPath = c
-      return c
-    }
-  }
-
-  cachedFfmpegPath = 'ffmpeg'
-  return cachedFfmpegPath
-}
+import { findFfmpeg } from './binaries'
 
 export async function generateThumbnail(filePath: string, duration = 0): Promise<string | null> {
   try {

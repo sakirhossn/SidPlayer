@@ -2,6 +2,7 @@ import { execFile } from 'child_process'
 import path from 'path'
 import fs from 'fs'
 import { AudioTrack, SubtitleTrack } from '../shared/types'
+import { findFfprobe } from './binaries'
 
 export interface ProbeResult {
   duration: number
@@ -18,33 +19,6 @@ export interface ProbeResult {
   colorInfo?: string
 }
 
-let cachedFfprobePath: string | null = null
-
-function findFfprobe(): string {
-  if (cachedFfprobePath) return cachedFfprobePath
-
-  const candidates = [
-    'C:\\ffmpeg\\bin\\ffprobe.exe',
-    'ffprobe.exe',
-    'ffprobe'
-  ]
-
-  for (const c of candidates) {
-    if (path.isAbsolute(c)) {
-      if (fs.existsSync(c)) {
-        cachedFfprobePath = c
-        return c
-      }
-    } else {
-      // Relative or on path
-      cachedFfprobePath = c
-      return c
-    }
-  }
-
-  cachedFfprobePath = 'ffprobe'
-  return cachedFfprobePath
-}
 
 export function probeMedia(filePath: string): Promise<ProbeResult> {
   return new Promise((resolve) => {

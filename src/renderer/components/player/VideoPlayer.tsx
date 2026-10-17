@@ -297,7 +297,22 @@ export const VideoPlayer: React.FC = () => {
         return e.code === mainKey || e.key.toLowerCase() === mainKey.toLowerCase()
       }
 
-      if (matchesAction('togglePlay') || e.key === ' ' || e.key === 'k' || e.key === 'K') {
+      const isBoundToOtherAction = (key: string, currentAction: string): boolean => {
+        const normKey = key.toLowerCase()
+        for (const [action, binding] of Object.entries(bindings)) {
+          if (action === currentAction || !binding) continue
+          const parts = binding.split('+')
+          const hasModifier = parts.some((p) => ['Ctrl', 'Shift', 'Alt'].includes(p))
+          if (hasModifier) continue
+          const mainKey = parts[parts.length - 1].toLowerCase()
+          if (mainKey === normKey) {
+            return true
+          }
+        }
+        return false
+      }
+
+      if (matchesAction('togglePlay') || (!isBoundToOtherAction(e.key, 'togglePlay') && (e.key === ' ' || e.key === 'k' || e.key === 'K'))) {
         e.preventDefault()
         togglePlay()
         return
@@ -327,13 +342,13 @@ export const VideoPlayer: React.FC = () => {
         return
       }
 
-      if (matchesAction('seekBack') || e.key === 'ArrowLeft' || e.key === 'j' || e.key === 'J') {
+      if (matchesAction('seekBack') || (!isBoundToOtherAction(e.key, 'seekBack') && (e.key === 'ArrowLeft' || e.key === 'j' || e.key === 'J'))) {
         e.preventDefault()
         seekRelative(-5)
         return
       }
 
-      if (matchesAction('seekForward') || e.key === 'ArrowRight' || e.key === 'l' || e.key === 'L') {
+      if (matchesAction('seekForward') || (!isBoundToOtherAction(e.key, 'seekForward') && (e.key === 'ArrowRight' || e.key === 'l' || e.key === 'L'))) {
         e.preventDefault()
         seekRelative(5)
         return
@@ -351,13 +366,13 @@ export const VideoPlayer: React.FC = () => {
         return
       }
 
-      if (matchesAction('toggleMute') || e.key === 'm' || e.key === 'M') {
+      if (matchesAction('toggleMute') || (!isBoundToOtherAction(e.key, 'toggleMute') && (e.key === 'm' || e.key === 'M'))) {
         e.preventDefault()
         toggleMute()
         return
       }
 
-      if (matchesAction('toggleFullscreen') || e.key === 'f' || e.key === 'F') {
+      if (matchesAction('toggleFullscreen') || (!isBoundToOtherAction(e.key, 'toggleFullscreen') && (e.key === 'f' || e.key === 'F'))) {
         e.preventDefault()
         toggleFullscreen()
         return

@@ -4,33 +4,8 @@ import path from 'path'
 import fs from 'fs'
 import crypto from 'crypto'
 import { VideoItem, PrepareMediaResult, PrepareMediaProgress } from '../shared/types'
-
-let cachedFfmpegPath: string | null = null
-
-export function findFfmpeg(): string {
-  if (cachedFfmpegPath) return cachedFfmpegPath
-
-  const candidates = [
-    'C:\\ffmpeg\\bin\\ffmpeg.exe',
-    'ffmpeg.exe',
-    'ffmpeg'
-  ]
-
-  for (const c of candidates) {
-    if (path.isAbsolute(c)) {
-      if (fs.existsSync(c)) {
-        cachedFfmpegPath = c
-        return c
-      }
-    } else {
-      cachedFfmpegPath = c
-      return c
-    }
-  }
-
-  cachedFfmpegPath = 'ffmpeg'
-  return cachedFfmpegPath
-}
+export { findFfmpeg } from './binaries'
+import { findFfmpeg } from './binaries'
 
 export function isDirectlyPlayable(video: VideoItem): boolean {
   const ext = path.extname(video.path).toLowerCase()
@@ -287,6 +262,8 @@ export async function switchAudioTrack(video: VideoItem, audioTrackIndex: number
     return cachedPath
   }
 
+  const tempPath = `${cachedPath}.tmp_${Date.now()}`
+
   return new Promise((resolve, reject) => {
     const ffmpegPath = findFfmpeg()
     const args = [
@@ -303,44 +280,77 @@ export async function switchAudioTrack(video: VideoItem, audioTrackIndex: number
       'copy',
       '-movflags',
       '+faststart',
-      cachedPath
+      tempPath
     ]
+
+    const cleanupTemp = () => {
+      try {
+        if (fs.existsSync(tempPath)) {
+          fs.unlinkSync(tempPath)
+        }
+      } catch {}
+    }
 
     const proc = spawn(ffmpegPath, args)
     proc.on('close', (code) => {
-      if (code === 0 && fs.existsSync(cachedPath)) {
-        resolve(cachedPath)
-      } else {
-        // Fallback to transcoding audio to AAC if direct copy fails
-        const fallbackArgs = [
-          '-y',
-          '-i',
-          video.path,
-          '-map',
-          '0:v:0',
-          '-map',
-          `0:a:${audioTrackIndex}`,
-          '-c:v',
-          'copy',
-          '-c:a',
-          'aac',
-          '-b:a',
-          '192k',
-          '-movflags',
-          '+faststart',
-          cachedPath
-        ]
-        const proc2 = spawn(ffmpegPath, fallbackArgs)
-        proc2.on('close', (code2) => {
-          if (code2 === 0 && fs.existsSync(cachedPath)) {
-            resolve(cachedPath)
-          } else {
-            reject(new Error(`Failed to switch audio track: code ${code2}`))
-          }
-        })
+      if (code === 0 && fs.existsSync(tempPath) && fs.statSync(tempPath).size > 1024) {
+        try {
+          fs.renameSync(tempPath, cachedPath)
+          resolve(cachedPath)
+          return
+        } catch (err: any) {
+          cleanupTemp()
+          reject(err)
+          return
+        }
       }
+
+      cleanupTemp()
+
+      // Fallback to transcoding audio to AAC if direct copy fails
+      const fallbackArgs = [
+        '-y',
+        '-i',
+        video.path,
+        '-map',
+        '0:v:0',
+        '-map',
+        `0:a:${audioTrackIndex}`,
+        '-c:v',
+        'copy',
+        '-c:a',
+        'aac',
+        '-b:a',
+        '192k',
+        '-movflags',
+        '+faststart',
+        tempPath
+      ]
+      const proc2 = spawn(ffmpegPath, fallbackArgs)
+      proc2.on('close', (code2) => {
+        if (code2 === 0 && fs.existsSync(tempPath) && fs.statSync(tempPath).size > 1024) {
+          try {
+            fs.renameSync(tempPath, cachedPath)
+            resolve(cachedPath)
+            return
+          } catch (err: any) {
+            cleanupTemp()
+            reject(err)
+            return
+          }
+        }
+        cleanupTemp()
+        reject(new Error(`Failed to switch audio track: code ${code2}`))
+      })
+      proc2.on('error', (err) => {
+        cleanupTemp()
+        reject(err)
+      })
     })
-    proc.on('error', reject)
+    proc.on('error', (err) => {
+      cleanupTemp()
+      reject(err)
+    })
   })
 }
 

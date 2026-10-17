@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
-import { registerMediaProtocol } from './protocol'
+import { registerMediaProtocol, authorizeMediaPath } from './protocol'
 import { store } from './store'
 import { scanFolder, cancelScan } from './scanner'
 import { probeMedia } from './mediaInfo'
@@ -26,8 +26,7 @@ protocol.registerSchemesAsPrivileged([
       standard: true,
       secure: true,
       supportFetchAPI: true,
-      stream: true,
-      bypassCSP: true
+      stream: true
     }
   }
 ])
@@ -60,7 +59,8 @@ function extractVideoFromArgv(argv: string[]): string | null {
     const arg = argv[i]
     if (arg && !arg.startsWith('--') && !arg.startsWith('-') && fs.existsSync(arg)) {
       const ext = path.extname(arg).toLowerCase()
-      if (['.mp4', '.mkv', '.webm', '.avi', '.mov', '.m4v', '.mpg', '.mpeg', '.wmv', '.flv', '.ts'].includes(ext)) {
+      if (['.mp4', '.mkv', '.webm', '.avi', '.mov', '.m4v', '.mpg', '.mpeg', '.wmv', '.flv', '.ts', '.m2ts'].includes(ext)) {
+        authorizeMediaPath(arg)
         return arg
       }
     }
@@ -92,6 +92,25 @@ function createWindow(): void {
       sandbox: false,
       webSecurity: true
     }
+  })
+
+  // Restrict navigation and new window creation
+  mainWindow.webContents.setWindowOpenHandler((details) => {
+    if (details.url.startsWith('http://') || details.url.startsWith('https://')) {
+      shell.openExternal(details.url)
+    }
+    return { action: 'deny' }
+  })
+
+  mainWindow.webContents.on('will-navigate', (event, navigationUrl) => {
+    const isDev = Boolean(process.env.VITE_DEV_SERVER_URL)
+    if (isDev && navigationUrl.startsWith(process.env.VITE_DEV_SERVER_URL!)) {
+      return
+    }
+    if (!isDev && navigationUrl.startsWith('file://')) {
+      return
+    }
+    event.preventDefault()
   })
 
   mainWindow.once('ready-to-show', () => {
@@ -221,6 +240,7 @@ ipcMain.handle('dialog-open-file', async () => {
   })
 
   if (res.canceled || res.filePaths.length === 0) return null
+  res.filePaths.forEach((fp) => authorizeMediaPath(fp))
   return res.filePaths
 })
 
@@ -247,6 +267,7 @@ ipcMain.handle('dialog-open-subtitle', async () => {
   })
 
   if (res.canceled || res.filePaths.length === 0) return null
+  authorizeMediaPath(res.filePaths[0])
   return res.filePaths[0]
 })
 
@@ -260,6 +281,7 @@ ipcMain.handle('show-item-in-folder', (_event, filePath: string) => {
 ipcMain.handle('process-single-file', async (_event, filePath: string): Promise<VideoItem | null> => {
   try {
     if (!fs.existsSync(filePath)) return null
+    authorizeMediaPath(filePath)
     const stat = fs.statSync(filePath)
     const probe = await probeMedia(filePath)
     const thumb = await generateThumbnail(filePath, probe.duration)
